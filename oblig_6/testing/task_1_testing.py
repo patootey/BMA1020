@@ -130,15 +130,15 @@ class Circle:
 
         # Calculate new velocities along normal using coefficient of restitution
         # Conservation of momentum and energy with restitution coefficient
+
+        m = m1 + m2
         v1_normal_new = (
-            (m1 - COEFFICIENT_OF_RESTITUTION * m2) * v1_normal
-            + (1 + COEFFICIENT_OF_RESTITUTION) * m2 * v2_normal
-        ) / (m1 + m2)
+            (m1 - m2) * v1_normal + (1 + COEFFICIENT_OF_RESTITUTION) * m2 * v2_normal
+        ) / m
 
         v2_normal_new = (
-            (m2 - COEFFICIENT_OF_RESTITUTION * m1) * v2_normal
-            + (1 + COEFFICIENT_OF_RESTITUTION) * m1 * v1_normal
-        ) / (m1 + m2)
+            (m2 - m1) * v2_normal + (1 + COEFFICIENT_OF_RESTITUTION) * m1 * v1_normal
+        ) / m
 
         # Convert normal velocities back to vectors
         v1_normal_vec = v1_normal_new * normal_vec
