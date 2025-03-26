@@ -1,0 +1,17 @@
+   def __init__(
+        self,
+        pos: Vec2 | None = None,
+        velocity: Vec2 | None = None,
+        radius: float = 1,
+        color: tuple[int, int, int] = color1,
+    ) -> None:
+        self.pos = pos or Vec2(0, 0)
+        self.velocity = Vec2(0, 0) if velocity is None else velocity
+
+
+if pos is None:
+pos = Vec2(0,0)
+self.pos = pos or Vec2(0, 0)
+
+if not isinstance(pos, Vec2):
+pos = Vec2()
