@@ -2,8 +2,8 @@ import pyglet
 from pyglet import shapes
 from pyglet.graphics import Batch
 import random
-import math
 import numpy as np
+
 
 # Window dimensions
 WINDOW_WIDTH = 1000
@@ -23,7 +23,7 @@ pyglet.gl.glClearColor(0.2, 0.0, 0.1, 1)
 g_batch = Batch()
 
 # bytte om til en mer effektiv kode
-# hør med TA
+# hør med TA, ta sa det var greit?
 
 
 # General functions
@@ -34,7 +34,7 @@ def clamp(value: float, min_value: float, max_value: float) -> float:
 
 def distance_between_points(point1: np.ndarray, point2: np.ndarray) -> float:
     """Calculate the distance between two points."""
-    return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2)
+    return np.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2)
 
 
 # Circle class: defines a circle with a center point and a radius
@@ -91,89 +91,45 @@ class Circle:
 
     def circle_collision(self, other: "Circle") -> None:
         # Calculate distance between circle centers
+
+        # bruke linalg? syntes det hakket
         distance = distance_between_points(self.position, other.position)
 
         # Avoid division by zero
         if distance == 0:
             return
 
-        # Calculate collision normal (unit vector pointing from self to other)
-        collision_normalized = (other.position - self.position) / distance
+        # Calculate collision normal
+        normalize = (other.position - self.position) / distance
+        # Calculate normal velocities
+        vec1_normal = np.dot(self.velocity, normalize)
+        vec2_normal = np.dot(other.velocity, normalize)
 
-        # Project velocities onto the collision normal
-        self_velocity_along_normal = np.dot(self.velocity, collision_normalized)
-        other_velocity_along_normal = np.dot(other.velocity, collision_normalized)
+        mass = (self.mass * other.mass) / (self.mass + other.mass)
 
-        # Skip if circles are moving away from each other
-        if self_velocity_along_normal < other_velocity_along_normal:
-            return
+        # Calculate new normal velocities using impulse
+        Impulse1 = vec1_normal + (mass / self.mass) * (
+            1 + COEFFICIENT_OF_RESTITUTION
+        ) * (vec2_normal - vec1_normal)
+        Impulse2 = vec2_normal - (mass / other.mass) * (
+            1 + COEFFICIENT_OF_RESTITUTION
+        ) * (vec2_normal - vec1_normal)
 
-        # Calculate post-collision velocities along normal using conservation of momentum
-        # and coefficient of restitution
-        # hjelp av
-        self_new_velocity_along_normal = (
-            (self.mass - COEFFICIENT_OF_RESTITUTION * other.mass)
-            * self_velocity_along_normal
-            + (1 + COEFFICIENT_OF_RESTITUTION)
-            * other.mass
-            * other_velocity_along_normal
-        ) / (self.mass + other.mass)
+        # Calculate tangential velocities
+        v1_tangent = self.velocity - vec1_normal * normalize
+        v2_tangent = other.velocity - vec2_normal * normalize
 
-        other_new_velocity_along_normal = (
-            (other.mass - COEFFICIENT_OF_RESTITUTION * self.mass)
-            * other_velocity_along_normal
-            + (1 + COEFFICIENT_OF_RESTITUTION) * self.mass * self_velocity_along_normal
-        ) / (self.mass + other.mass)
+        # Add to the velocity, so show the direction
+        self.velocity = Impulse1 * normalize + v1_tangent
+        other.velocity = Impulse2 * normalize + v2_tangent
 
-        # Convert scalar normal velocities back to vectors
-        self_normal_velocity_vector = (
-            self_new_velocity_along_normal * collision_normalized
-        )
-        other_normal_velocity_vector = (
-            other_new_velocity_along_normal * collision_normalized
-        )
-
-        # Calculate tangential component
-        collision_tangent = np.array(
-            [-collision_normalized[1], collision_normalized[0]], dtype=float
-        )
-
-        # Project original velocities onto tangential direction
-        self_tangential_velocity = (
-            np.dot(self.velocity, collision_tangent) * collision_tangent
-        )
-        other_tangential_velocity = (
-            np.dot(other.velocity, collision_tangent) * collision_tangent
-        )
-
-        self.velocity = self_normal_velocity_vector + self_tangential_velocity
-        other.velocity = other_normal_velocity_vector + other_tangential_velocity
-
-        # Resolve overlapping circles by moving them apart
-        overlap_distance = self.radius + other.radius - distance
-
-        # Distribute displacement based on mass ratio
+        # Resolve overlap by separating circles
+        overlap = self.radius + other.radius - distance
         total_mass = self.mass + other.mass
-        self_displacement_ratio = other.mass / total_mass
-        other_displacement_ratio = self.mass / total_mass
 
-        self.position = np.array(
-            [
-                self.position[0]
-                - collision_normalized[0] * overlap_distance * self_displacement_ratio,
-                self.position[1]
-                - collision_normalized[1] * overlap_distance * self_displacement_ratio,
-            ]
-        )
-
-        other.position = np.array(
-            [
-                other.position[0]
-                + collision_normalized[0] * overlap_distance * other_displacement_ratio,
-                other.position[1]
-                + collision_normalized[1] * overlap_distance * other_displacement_ratio,
-            ]
-        )
+        # Displace circles proportionally to their masses
+        self.position -= overlap * (other.mass / total_mass) * normalize
+        other.position += overlap * (self.mass / total_mass) * normalize
 
 
 def main() -> None:
