@@ -34,6 +34,7 @@ def clamp(value: float, min_value: float, max_value: float) -> float:
 def distance_between_points(point1: np.ndarray, point2: np.ndarray) -> float:
     """Calculate the distance between two points."""
     return np.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2)
+    # return np.linalg.norm(point2 - point1)
 
 
 # Circle class: defines a circle with a center point and a radius
