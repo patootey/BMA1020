@@ -1,7 +1,6 @@
 import pyglet
 from pyglet import shapes
 from pyglet.graphics import Batch
-import random
 import numpy as np
 
 
@@ -15,7 +14,7 @@ NUM_CIRCLES = 100
 MIN_RADIUS = 2
 MAX_RADIUS = 22
 VELOCITY_RANGE = 50
-COEFFICIENT_OF_RESTITUTION = 0.3
+COEFFICIENT_OF_RESTITUTION = 0.6
 
 # Window
 g_window = pyglet.window.Window(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -70,7 +69,8 @@ class Circle:
 
     def wall_collision(self, dt: float, window_width: int, window_height: int) -> None:
         """Update circle position and handle bouncing off walls."""
-        new_pos = self.position + self.velocity * dt  # Calculate new position
+        # Calculate new position
+        new_pos = self.position + self.velocity * dt
 
         # Bounce off left or right walls
         if new_pos[0] - self.radius < 0 or new_pos[0] + self.radius > window_width:
@@ -93,8 +93,9 @@ class Circle:
         # Calculate distance between circle centers
 
         # bruke linalg? syntes det hakket
+        # r = other.position - self.position
         distance = distance_between_points(self.position, other.position)
-
+        # distance = np.linalg.norm(,r)
         # Avoid division by zero
         if distance == 0:
             return
@@ -140,21 +141,21 @@ def main() -> None:
             Circle(
                 position=np.array(
                     [
-                        random.uniform(MAX_RADIUS, WINDOW_WIDTH - MAX_RADIUS),
-                        random.uniform(MAX_RADIUS, WINDOW_HEIGHT - MAX_RADIUS),
+                        np.random.uniform(MAX_RADIUS, WINDOW_WIDTH - MAX_RADIUS),
+                        np.random.uniform(MAX_RADIUS, WINDOW_HEIGHT - MAX_RADIUS),
                     ]
                 ),
                 velocity=np.array(
                     [
-                        random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE),
-                        random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE),
+                        np.random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE),
+                        np.random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE),
                     ]
                 ),
-                radius=random.randint(MIN_RADIUS, MAX_RADIUS),
+                radius=np.random.randint(MIN_RADIUS, MAX_RADIUS),
                 color=(
-                    random.randint(50, 255),
-                    random.randint(50, 255),
-                    random.randint(50, 255),
+                    np.random.randint(50, 255),
+                    np.random.randint(50, 255),
+                    np.random.randint(50, 255),
                 ),
                 batch=g_batch,
             )

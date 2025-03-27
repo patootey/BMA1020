@@ -53,7 +53,7 @@ class ParticleSystem:
         self.batch = batch
 
     def reset(self):
-        not_alive_indices = np.where(~self.alive)
+        not_alive_indices = np.where(~self.alive)[0]
         for i in not_alive_indices:
             self.alive[i] = True
             self.positions[i, :] = CENTER
