@@ -21,157 +21,160 @@ g_window = pyglet.window.Window(WINDOW_WIDTH, WINDOW_HEIGHT)
 pyglet.gl.glClearColor(0.2, 0.0, 0.1, 1)
 g_batch = Batch()
 
-# bytte om til en mer effektiv kode
-# hør med TA, ta sa det var greit?
-
 
 # General functions
-def clamp(value: float, min_value: float, max_value: float) -> float:
-    """Clamp a value between min_value and max_value."""
-    return max(min(value, max_value), min_value)
+def distance_between_points(point1: np.ndarray, point2: np.ndarray):
+    return np.linalg.norm(point2 - point1)
 
 
-def distance_between_points(point1: np.ndarray, point2: np.ndarray) -> float:
-    """Calculate the distance between two points."""
-    return np.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2)
-    # return np.linalg.norm(point2 - point1)
-
-
-# Circle class: defines a circle with a center point and a radius
-class Circle:
+class CircleSystem:
     def __init__(
         self,
-        batch: Batch,
-        color: tuple[int, int, int],
+        color: np.ndarray,
+        shape: np.ndarray,
         position: np.ndarray,
         velocity: np.ndarray,
-        radius: float = 1,
+        radius: np.ndarray,
     ) -> None:
-        self.position = position
-        self.velocity = velocity
-        self.radius = radius
+        self.positions = position
+        self.velocities = velocity
+        self.radiuses = radius
         self.color = color
-        self.mass = self.radius
-
-        # The circle object drawn on the screen
-        self.shape = shapes.Circle(
-            self.position[0],
-            self.position[1],
-            self.radius,
-            color=self.color,
-            batch=batch,
-        )
+        self.masses = self.radiuses
+        self.shapes = shape
 
     def check_collision(self, other) -> bool:
         """Check if this circle is colliding with another circle."""
-        return distance_between_points(self.position, other.position) < (
-            self.radius + other.radius
+        return distance_between_points(self.positions, other.position) < (
+            self.radiuses + other.radius
         )
 
     def wall_collision(self, dt: float, window_width: int, window_height: int) -> None:
         """Update circle position and handle bouncing off walls."""
         # Calculate new position
-        new_pos = self.position + self.velocity * dt
+        new_positions = self.positions + self.velocities * dt
 
-        # Bounce off left or right walls
-        if new_pos[0] - self.radius < 0 or new_pos[0] + self.radius > window_width:
-            self.velocity = np.array([-self.velocity[0], self.velocity[1]])
-            new_pos[0] = clamp(new_pos[0], self.radius, window_width - self.radius)
+        # Detect collisions with walls
+        collision_x = (new_positions[:, 0] - self.radiuses < 0) | (
+            new_positions[:, 0] + self.radiuses > window_width
+        )
+        collision_y = (new_positions[:, 1] - self.radiuses < 0) | (
+            new_positions[:, 1] + self.radiuses > window_height
+        )
 
-        # Bounce off top or bottom walls
-        if new_pos[1] - self.radius < 0 or new_pos[1] + self.radius > window_height:
-            self.velocity = np.array([self.velocity[0], -self.velocity[1]])
-            new_pos[1] = clamp(new_pos[1], self.radius, window_height - self.radius)
+        # Reverse velocities where collisions occur
+        self.velocities[:, 0] *= np.where(collision_x, -1, 1)
+        self.velocities[:, 1] *= np.where(collision_y, -1, 1)
+
+        new_positions[:, 0] = np.clip(
+            new_positions[:, 0], self.radiuses, window_width - self.radiuses
+        )
+
+        new_positions[:, 1] = np.clip(
+            new_positions[:, 1], self.radiuses, window_height - self.radiuses
+        )
 
         # Putting the new values to the original
-        self.position = new_pos
+        self.positions[:] = new_positions
 
-        # Update shape position
-        self.shape.x = self.position[0]
-        self.shape.y = self.position[1]
+        # for shape, (pos_x, pos_y) in zip(self.shapes, self.positions):
+        #     shape.x = pos_x
+        #     shape.y = pos_y
 
-    def circle_collision(self, other: "Circle") -> None:
+        for i, shape in enumerate(self.shapes):
+            shape.x = self.positions[i, 0]
+            shape.y = self.positions[i, 1]
+
+    def handle_collisions(self):
+        for circle1 in range(NUM_CIRCLES):
+            for circle2 in range(circle1 + 1, NUM_CIRCLES):
+                if distance_between_points(
+                    self.positions[circle1], self.positions[circle2]
+                ) < (self.radiuses[circle1] + self.radiuses[circle2]):
+                    self.circle_collision(circle1, circle2)
+
+    def circle_collision(self, circle1, circle2) -> None:
         # Calculate distance between circle centers
+        normal = self.positions[circle2] - self.positions[circle1]
 
-        # bruke linalg? syntes det hakket
-        # r = other.position - self.position
-        distance = distance_between_points(self.position, other.position)
-        # distance = np.linalg.norm(,r)
+        # normalizing
+        distance = np.linalg.norm(normal)
+
         # Avoid division by zero
         if distance == 0:
             return
 
-        # Calculate collision normal
-        normalize = (other.position - self.position) / distance
-        # Calculate normal velocities
-        vec1_normal = np.dot(self.velocity, normalize)
-        vec2_normal = np.dot(other.velocity, normalize)
+        normal /= distance
 
-        mass = (self.mass * other.mass) / (self.mass + other.mass)
+        # Calculate normal velocities
+        vec1_normal = np.dot(self.velocities[circle1], normal)
+        vec2_normal = np.dot(self.velocities[circle2], normal)
+
+        mass = (self.masses[circle1] * self.masses[circle2]) / (
+            self.masses[circle1] + self.masses[circle2]
+        )
 
         # Calculate new normal velocities using impulse
-        Impulse1 = vec1_normal + (mass / self.mass) * (
+        new_normal1 = vec1_normal + (mass / self.masses[circle1]) * (
             1 + COEFFICIENT_OF_RESTITUTION
         ) * (vec2_normal - vec1_normal)
-        Impulse2 = vec2_normal - (mass / other.mass) * (
+        new_normal2 = vec2_normal - (mass / self.masses[circle2]) * (
             1 + COEFFICIENT_OF_RESTITUTION
         ) * (vec2_normal - vec1_normal)
 
         # Calculate tangential velocities
-        v1_tangent = self.velocity - vec1_normal * normalize
-        v2_tangent = other.velocity - vec2_normal * normalize
+        v1_tangent = self.velocities[circle1] - vec1_normal * normal
+        v2_tangent = self.velocities[circle2] - vec2_normal * normal
 
         # Add to the velocity, so show the direction
-        self.velocity = Impulse1 * normalize + v1_tangent
-        other.velocity = Impulse2 * normalize + v2_tangent
+        self.velocities[circle1] = new_normal1 * normal + v1_tangent
+        self.velocities[circle2] = new_normal2 * normal + v2_tangent
 
         # Resolve overlap by separating circles
-        overlap = self.radius + other.radius - distance
-        total_mass = self.mass + other.mass
+        overlap = self.radiuses[circle1] + self.radiuses[circle2] - distance
+        total_mass = self.masses[circle1] + self.masses[circle2]
 
         # Displace circles proportionally to their masses
-        self.position -= overlap * (other.mass / total_mass) * normalize
-        other.position += overlap * (self.mass / total_mass) * normalize
+        self.positions[circle1] -= (
+            overlap * (self.masses[circle2] / total_mass) * normal
+        )
+        self.positions[circle2] += (
+            overlap * (self.masses[circle1] / total_mass) * normal
+        )
 
 
 def main() -> None:
-    circles = []
-
-    for i in range(NUM_CIRCLES):
-        circles.append(
-            Circle(
-                position=np.array(
-                    [
-                        np.random.uniform(MAX_RADIUS, WINDOW_WIDTH - MAX_RADIUS),
-                        np.random.uniform(MAX_RADIUS, WINDOW_HEIGHT - MAX_RADIUS),
-                    ]
-                ),
-                velocity=np.array(
-                    [
-                        np.random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE),
-                        np.random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE),
-                    ]
-                ),
-                radius=np.random.randint(MIN_RADIUS, MAX_RADIUS),
-                color=(
-                    np.random.randint(50, 255),
-                    np.random.randint(50, 255),
-                    np.random.randint(50, 255),
-                ),
+    postitions = np.random.uniform(
+        MAX_RADIUS, WINDOW_WIDTH - MAX_RADIUS, (NUM_CIRCLES, 2)
+    )
+    velocities = np.random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE, (NUM_CIRCLES, 2))
+    radiuses = np.random.uniform(MIN_RADIUS, MAX_RADIUS, NUM_CIRCLES)
+    colors = np.random.randint(50, 255, (NUM_CIRCLES, 3))
+    circle_shapes = np.array(
+        [
+            shapes.Circle(
+                0,
+                0,
+                radiuses[i],
+                color=tuple(colors[i]),
                 batch=g_batch,
             )
-        )
+            for i in range(NUM_CIRCLES)
+        ]
+    )
+    circles = CircleSystem(
+        position=postitions,
+        velocity=velocities,
+        radius=radiuses,
+        color=colors,
+        shape=circle_shapes,
+    )
 
     def update(dt) -> None:
         """Update all circles and handle collisions."""
-        for circle in circles:
-            circle.wall_collision(dt, WINDOW_WIDTH, WINDOW_HEIGHT)
 
-        # Collision detection and resolution
-        for i in range(len(circles)):
-            for j in range(i + 1, len(circles)):
-                if circles[i].check_collision(circles[j]):
-                    circles[i].circle_collision(circles[j])
+        circles.handle_collisions()
+        circles.wall_collision(dt, WINDOW_WIDTH, WINDOW_HEIGHT)
 
     @g_window.event
     def on_draw() -> None:

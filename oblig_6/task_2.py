@@ -1,5 +1,6 @@
 import pyglet
 from pyglet.graphics import Batch
+from pyglet import shapes
 import numpy as np
 
 # Constants
@@ -11,95 +12,151 @@ CENTER = np.array([WINDOW_WIDTH // 2, WINDOW_HEIGHT // 2])
 PARTICLES_PER_FRAME = 5
 FRAME_TIME = 1 / 60
 
-# alltid legge til 5 per sekund
-
-# bruk istedenfor
+# Global variables
 g_batch = Batch()
 g_window = pyglet.window.Window(WINDOW_WIDTH, WINDOW_HEIGHT)
 
-# kanskje ikke?, hvis det er greit med funksjoner gidder jeg ikk
-# numpy array, om de er i live
-# numpy velocity
-# numpy posisjon
-# array med shapes
-# g_alive = np.array([])
-# g_velocity = np.array([])
-# g_position = np.array([])
-# g_shapes = np.array([])
-# g_radius = np.array([])
 
-
-# gjør til funksjoner, sende inn particel system , med index
-
-
-# MANGLER 5 PARTICLES PER FRAME!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
-class Particle:
+class ParticleSystem:
     def __init__(
-        self, batch: Batch, position: np.ndarray, velocity: np.ndarray, radius: float
+        self,
+        batch: Batch,
+        alive: np.ndarray,
+        shapes: np.ndarray,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        radius: np.ndarray,
     ):
-        self.alive = False
-        self.position = position
-        self.velocity = velocity
-        self.radius = radius
-        self.shape = pyglet.shapes.Circle(
-            self.position[0],
-            self.position[1],
-            self.radius,
-            color=(255, 255, 255),
-            batch=batch,
+        self.alive = alive
+        self.positions = position
+        self.velocities = velocity
+        self.radiuses = radius
+        self.shapes = shapes
+        self.batch = batch
+        self.time = 0
+
+    def make_particles(self):
+        dead_indices = np.where(~self.alive)[0][:PARTICLES_PER_FRAME]
+        needed = PARTICLES_PER_FRAME - len(dead_indices)
+        if needed > 0:
+            new_dead = np.arange(len(self.alive), len(self.alive) + needed)
+            dead_indices = np.append(dead_indices, new_dead)
+
+            self.alive = np.append(self.alive, np.zeros(needed, dtype=bool))
+            self.positions = np.append(self.positions, np.zeros((needed, 2)), axis=0)
+            self.velocities = np.append(self.velocities, np.zeros((needed, 2)), axis=0)
+            radius = np.random.uniform(10, 15, needed)
+            self.shapes = np.append(
+                self.shapes,
+                np.array(
+                    [
+                        shapes.Circle(
+                            0,
+                            0,
+                            radius[i],
+                            color=(
+                                255,
+                                255,
+                                255,
+                            ),
+                            batch=g_batch,
+                        )
+                        for i in range(needed)
+                    ]
+                ),
+            )
+            self.radiuses = np.append(self.radiuses, radius)
+        self.alive[dead_indices] = True
+        shape: shapes.Circle
+        for shape in self.shapes[dead_indices]:
+            shape.visible = True
+        self.positions[dead_indices, :] = CENTER
+        speed = np.random.uniform(200, 300, len(dead_indices))
+        angle = np.random.uniform(np.pi / 4, 3 * np.pi / 4, len(dead_indices))
+        self.velocities[dead_indices, 0] = speed * np.cos(angle)
+        self.velocities[dead_indices, 1] = speed * np.sin(angle)
+        # for i in dead_indices:
+        #     self.alive[i] = True
+        #     self.positions[i, :] = CENTER
+        #     speed = np.random.uniform(200, 300)
+        #     angle = np.random.uniform(np.pi / 4, 3 * np.pi / 4)
+        #     self.velocities[i, 0] = speed * np.cos(angle)
+        #     self.velocities[i, 1] = speed * np.sin(angle)
+
+    def update(self, dt: float):
+        self.time += dt
+        make_dead = np.where(self.positions[:, 1] < 0)
+        self.alive[make_dead] = False
+        shape: shapes.Circle
+        for shape in self.shapes[make_dead]:
+            shape.visible = False
+
+        are_alive = np.where(self.alive)
+        wind_velocity_x = np.sin(self.time) * 20
+        wind_accel = (
+            wind_velocity_x * 2 * self.radiuses[are_alive]
+            - self.velocities[are_alive, 0]
         )
+        self.velocities[are_alive, 0] += wind_accel * dt
+        self.velocities[are_alive, 1] -= GRAVITY_ACCELERATION * dt
+        # for i in are_alive:
+        #     wind_velocity_x = np.sin(self.time) * 20
+        #     wind_accel = wind_velocity_x * 2 * self.radiuses[i] - self.velocities[i, 0]
+        #     self.velocities[i, 0] += wind_accel * dt
+        #     self.velocities[i, 1] -= GRAVITY_ACCELERATION * dt
 
-    def reset(self):
-        self.alive = True
-        self.position[:] = CENTER
-        speed = np.random.uniform(200, 300)
-        angle = np.random.uniform(np.pi / 4, 3 * np.pi / 4)
-        self.velocity[0] = speed * np.cos(angle)
-        self.velocity[1] = speed * np.sin(angle)
+        self.positions[are_alive] += self.velocities[are_alive] * dt
 
-    def update(self, dt, wind_velocity_x):
-        if self.position[1] < 0:
-            self.alive = False
-
-        wind_accel = wind_velocity_x * 2 * self.radius - self.velocity[0]
-        self.velocity[0] += wind_accel * dt
-        self.velocity[1] -= GRAVITY_ACCELERATION * dt
-        self.position += self.velocity * dt
-
-        # update the position
-        self.shape.x = self.position[0]
-        self.shape.y = self.position[1]
+        for i, shape in enumerate(self.shapes):
+            shape.x = self.positions[i, 0]
+            shape.y = self.positions[i, 1]
 
 
 def main() -> None:
-    g_particles = []
-    for _ in range(START_PARTICLES):
-        g_particles.append(
-            Particle(
+    alive: np.ndarray = np.zeros(START_PARTICLES, dtype=bool)
+    velocity: np.ndarray = np.zeros((START_PARTICLES, 2))
+    position: np.ndarray = np.zeros((START_PARTICLES, 2))
+    radius: np.ndarray = np.random.uniform(10, 15, START_PARTICLES)
+    colors = np.random.randint(50, 255, (START_PARTICLES, 3))
+    circle_shapes: np.ndarray = np.array(
+        [
+            shapes.Circle(
+                0,
+                0,
+                radius[i],
+                color=tuple(colors[i]),
                 batch=g_batch,
-                position=np.zeros(2),
-                velocity=np.zeros(2),
-                radius=np.random.uniform(10, 15),
             )
-        )
+            for i in range(START_PARTICLES)
+        ]
+    )
+
+    label = pyglet.text.Label(
+        "",
+        font_name="Arial",
+        font_size=25,
+        x=100,
+        y=100,
+    )
+    particles = ParticleSystem(
+        batch=g_batch,
+        alive=alive,
+        shapes=circle_shapes,
+        position=position,
+        radius=radius,
+        velocity=velocity,
+    )
 
     @g_window.event
     def on_draw():
         g_window.clear()
         g_batch.draw()
+        label.draw()
 
     def update(dt):
-        time = 0
-        time += dt
-        wind_velocity_x = np.sin(time) * 70
-
-        for particle in g_particles:
-            if not particle.alive:
-                particle.reset()
-
-            particle.update(dt, wind_velocity_x)
+        particles.make_particles()
+        particles.update(dt)
+        label.text = f"{len(particles.alive)}"
 
     pyglet.clock.schedule_interval(update, FRAME_TIME)
     pyglet.app.run()
