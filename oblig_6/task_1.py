@@ -22,11 +22,6 @@ pyglet.gl.glClearColor(0.2, 0.0, 0.1, 1)
 g_batch = Batch()
 
 
-# General functions
-def distance_between_points(point1: np.ndarray, point2: np.ndarray):
-    return np.linalg.norm(point2 - point1)
-
-
 class CircleSystem:
     def __init__(
         self,
@@ -42,12 +37,6 @@ class CircleSystem:
         self.color = color
         self.masses = self.radiuses
         self.shapes = shape
-
-    def check_collision(self, other) -> bool:
-        """Check if this circle is colliding with another circle."""
-        return distance_between_points(self.positions, other.position) < (
-            self.radiuses + other.radius
-        )
 
     def wall_collision(self, dt: float, window_width: int, window_height: int) -> None:
         """Update circle position and handle bouncing off walls."""
@@ -77,23 +66,43 @@ class CircleSystem:
         # Putting the new values to the original
         self.positions[:] = new_positions
 
-        # for shape, (pos_x, pos_y) in zip(self.shapes, self.positions):
-        #     shape.x = pos_x
-        #     shape.y = pos_y
-
         for i, shape in enumerate(self.shapes):
             shape.x = self.positions[i, 0]
             shape.y = self.positions[i, 1]
 
     def handle_collisions(self):
-        for circle1 in range(NUM_CIRCLES):
-            for circle2 in range(circle1 + 1, NUM_CIRCLES):
-                if distance_between_points(
-                    self.positions[circle1], self.positions[circle2]
-                ) < (self.radiuses[circle1] + self.radiuses[circle2]):
-                    self.circle_collision(circle1, circle2)
+        # for circle in range(NUM_CIRCLES):
 
-    def circle_collision(self, circle1, circle2) -> None:
+        #     delta = self.positions - self.positions[circle]
+        #     distance = np.linalg.norm(delta, axis=1)
+
+        #     radius_sum = self.radiuses[circle] + self.radiuses
+        #     collision_check = distance < radius_sum
+
+        #     colliding_indices = np.where(collision_check)[0]
+
+        #     for circle_2 in colliding_indices:
+        #         self.circle_collision(circle, circle_2)
+
+        for circle in range(len(self.positions)):
+            # Calculate distance to all other circles
+            delta = self.positions - self.positions[circle]
+            distance = np.linalg.norm(delta, axis=1)
+
+            # Calculate sum of radiuses
+            radius_sum = self.radiuses[circle] + self.radiuses
+
+            # Check for collisions
+            collision_check = distance < radius_sum
+
+            # Get indices of colliding circles
+            colliding_indices = np.where(collision_check)[0]
+
+            if len(colliding_indices) > 0:
+                circle_indices = np.full(len(colliding_indices), circle)
+                self.circle_collision(circle_indices, colliding_indices)
+
+    def circle_collision(self, circle1: np.ndarray, circle2: np.ndarray) -> None:
         # Calculate distance between circle centers
         normal = self.positions[circle2] - self.positions[circle1]
 
@@ -144,26 +153,21 @@ class CircleSystem:
 
 
 def main() -> None:
-    postitions = np.random.uniform(
+    radiuses = np.random.uniform(MIN_RADIUS, MAX_RADIUS, NUM_CIRCLES)
+    colors = np.random.randint(50, 255, (NUM_CIRCLES, 3))
+    positions = np.random.uniform(
         MAX_RADIUS, WINDOW_WIDTH - MAX_RADIUS, (NUM_CIRCLES, 2)
     )
     velocities = np.random.uniform(-VELOCITY_RANGE, VELOCITY_RANGE, (NUM_CIRCLES, 2))
-    radiuses = np.random.uniform(MIN_RADIUS, MAX_RADIUS, NUM_CIRCLES)
-    colors = np.random.randint(50, 255, (NUM_CIRCLES, 3))
     circle_shapes = np.array(
         [
-            shapes.Circle(
-                0,
-                0,
-                radiuses[i],
-                color=tuple(colors[i]),
-                batch=g_batch,
-            )
+            shapes.Circle(0, 0, radiuses[i], color=tuple(colors[i]), batch=g_batch)
             for i in range(NUM_CIRCLES)
         ]
     )
+
     circles = CircleSystem(
-        position=postitions,
+        position=positions,
         velocity=velocities,
         radius=radiuses,
         color=colors,
