@@ -66,10 +66,12 @@ class ParticleSystem:
         Creates new particles if needed and sets initial positions and velocities.
         """
         # Find dead particles
+        # Got help with understanding how the where function worked
         dead_indices = np.where(~self.alive)[0][:PARTICLES_PER_FRAME]
         needed = PARTICLES_PER_FRAME - len(dead_indices)
 
         # If more particles are needed, append them
+        # Got help with understanding that I need to append all the new paritcles made to the originals.
         if needed > 0:
             new_dead = np.arange(len(self.alive), len(self.alive) + needed)
             dead_indices = np.append(dead_indices, new_dead)

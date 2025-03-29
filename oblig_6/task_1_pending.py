@@ -74,10 +74,12 @@ class CircleSystem:
         )
 
         # Reverse the velocities in the x and y directions where collisions occur
+        # Got help with the knowledge og np.where from my father
         self.velocities[:, 0] *= np.where(collision_x, -1, 1)
         self.velocities[:, 1] *= np.where(collision_y, -1, 1)
 
         # Clip(clamp) the new positions to make sure the circles stay within the window bounds
+        # Switched to clip beacuse its the same as clamp
         new_positions[:, 0] = np.clip(
             new_positions[:, 0], self.radiuses, window_width - self.radiuses
         )
@@ -158,6 +160,7 @@ class CircleSystem:
         self.velocities[circle2] = new_normal2 * normal + v2_tangent
 
         # Resolve the overlap between the circles by moving them apart
+        # Got some help from my father to understand when it has a overlap
         overlap = self.radiuses[circle1] + self.radiuses[circle2] - distance
         total_mass = self.masses[circle1] + self.masses[circle2]
 

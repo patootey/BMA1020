@@ -71,36 +71,17 @@ class CircleSystem:
             shape.y = self.positions[i, 1]
 
     def handle_collisions(self):
-        # for circle in range(NUM_CIRCLES):
-
-        #     delta = self.positions - self.positions[circle]
-        #     distance = np.linalg.norm(delta, axis=1)
-
-        #     radius_sum = self.radiuses[circle] + self.radiuses
-        #     collision_check = distance < radius_sum
-
-        #     colliding_indices = np.where(collision_check)[0]
-
-        #     for circle_2 in colliding_indices:
-        #         self.circle_collision(circle, circle_2)
-
-        for circle in range(len(self.positions)):
-            # Calculate distance to all other circles
-            delta = self.positions - self.positions[circle]
+        for i in range(len(self.positions)):
+            delta = self.positions - self.positions[i]
             distance = np.linalg.norm(delta, axis=1)
-
-            # Calculate sum of radiuses
-            radius_sum = self.radiuses[circle] + self.radiuses
-
-            # Check for collisions
+            radius_sum = self.radiuses[i] + self.radiuses
             collision_check = distance < radius_sum
-
-            # Get indices of colliding circles
+            collision_check[i] = False  # Ignore self-collision
             colliding_indices = np.where(collision_check)[0]
-
             if len(colliding_indices) > 0:
-                circle_indices = np.full(len(colliding_indices), circle)
-                self.circle_collision(circle_indices, colliding_indices)
+                self.circle_collision(
+                    np.array([i] * len(colliding_indices)), colliding_indices
+                )
 
     def circle_collision(self, circle1: np.ndarray, circle2: np.ndarray) -> None:
         # Calculate distance between circle centers
