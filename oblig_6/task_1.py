@@ -71,34 +71,44 @@ class CircleSystem:
             shape.y = self.positions[i, 1]
 
     def handle_collisions(self):
-        for i in range(len(self.positions)):
-            delta = self.positions - self.positions[i]
+        for circle in range(NUM_CIRCLES - 1):
+            delta = self.positions[: circle + 1] - self.positions[circle]
             distance = np.linalg.norm(delta, axis=1)
-            radius_sum = self.radiuses[i] + self.radiuses
+            radius_sum = self.radiuses[circle] + self.radiuses[: circle + 1]
             collision_check = distance < radius_sum
-            collision_check[i] = False  # Ignore self-collision
+            # collision_check[i] = False  # Ignore self-collision
             colliding_indices = np.where(collision_check)[0]
-            if len(colliding_indices) > 0:
+
+            colliding_circle_a = list(colliding_indices)
+            colliding_circle_b = [circle] * len(colliding_indices)
+
+            colliding_circle_a.append()
+            if colliding_indices > 0:
                 self.circle_collision(
-                    np.array([i] * len(colliding_indices)), colliding_indices
+                    np.array(colliding_circle_a), np.array(colliding_circle_b)
                 )
+
+            # if len(colliding_indices) > 0:
+            #     self.circle_collision(
+            #         np.array([i] * len(colliding_indices)), colliding_indices
+            #     )
 
     def circle_collision(self, circle1: np.ndarray, circle2: np.ndarray) -> None:
         # Calculate distance between circle centers
-        normal = self.positions[circle2] - self.positions[circle1]
+        vector = self.positions[circle2] - self.positions[circle1]
 
         # normalizing
-        distance = np.linalg.norm(normal)
+        distance = np.linalg.norm(vector, axis=1)
 
         # Avoid division by zero
         if distance == 0:
             return
 
-        normal /= distance
+        normalize = vector / distance[: np.newaxis]
 
         # Calculate normal velocities
-        vec1_normal = np.dot(self.velocities[circle1], normal)
-        vec2_normal = np.dot(self.velocities[circle2], normal)
+        vec1_normal = np.dot(self.velocities[circle1], normalize)
+        vec2_normal = np.dot(self.velocities[circle2], normalize)
 
         mass = (self.masses[circle1] * self.masses[circle2]) / (
             self.masses[circle1] + self.masses[circle2]
@@ -113,12 +123,12 @@ class CircleSystem:
         ) * (vec2_normal - vec1_normal)
 
         # Calculate tangential velocities
-        v1_tangent = self.velocities[circle1] - vec1_normal * normal
-        v2_tangent = self.velocities[circle2] - vec2_normal * normal
+        v1_tangent = self.velocities[circle1] - vec1_normal[: np.newaxis] * normalize
+        v2_tangent = self.velocities[circle2] - vec2_normal[: np.newaxis] * normalize
 
         # Add to the velocity, so show the direction
-        self.velocities[circle1] = new_normal1 * normal + v1_tangent
-        self.velocities[circle2] = new_normal2 * normal + v2_tangent
+        self.velocities[circle1] = new_normal1[: np.newaxis] * normalize + v1_tangent
+        self.velocities[circle2] = new_normal2[: np.newaxis] * normalize + v2_tangent
 
         # Resolve overlap by separating circles
         overlap = self.radiuses[circle1] + self.radiuses[circle2] - distance
@@ -126,10 +136,10 @@ class CircleSystem:
 
         # Displace circles proportionally to their masses
         self.positions[circle1] -= (
-            overlap * (self.masses[circle2] / total_mass) * normal
+            overlap * (self.masses[circle2] / total_mass) * normalize
         )
         self.positions[circle2] += (
-            overlap * (self.masses[circle1] / total_mass) * normal
+            overlap * (self.masses[circle1] / total_mass) * normalize
         )
 
 
