@@ -18,8 +18,8 @@ VELOCITY_RANGE = 50
 
 # Global variables
 g_batch = Batch()
-pyglet.gl.glClearColor(0.2, 0.0, 0.1, 1)
 g_window = pyglet.window.Window(WINDOW_WIDTH, WINDOW_HEIGHT)
+pyglet.gl.glClearColor(0.2, 0.0, 0.1, 1)
 
 
 class CircleSystem:
@@ -98,79 +98,99 @@ class CircleSystem:
 
     def handle_collisions(self):
         """Handle collisions between all circles in the system."""
-        for circle in range(NUM_CIRCLES):
-            # Calculate the difference between the current circle and all other circles
-            delta = self.positions - self.positions[circle]
+        colliding_circle_a = []
+        colliding_circle_b = []
+        for circle in range(NUM_CIRCLES - 1):
+            # Did circle + 1 to stop self collding checks and skip circles already collided
+            delta = self.positions[circle + 1 :] - self.positions[circle]
             distance = np.linalg.norm(delta, axis=1)
-
-            # Determine which circles are colliding
-            radius_sum = self.radiuses[circle] + self.radiuses
+            radius_sum = self.radiuses[circle] + self.radiuses[circle + 1 :]
             collision_check = distance < radius_sum
 
-            # Find the indices of all circles that are colliding with the current circle
-            colliding_indices = np.where(collision_check)[0]
+            colliding_indices = np.where(collision_check)[0] + circle + 1
 
-            # Handle collisions with all the colliding circles
-            for circle_2 in colliding_indices:
-                self.circle_collision(circle, circle_2)
+            # Saving which circles are colliding
+            colliding_circle_a.extend(colliding_indices)
+            colliding_circle_b.extend([circle] * len(colliding_indices))
 
-    def circle_collision(self, circle1, circle2) -> None:
+        # Call the function one time for all colliding circles
+        if len(colliding_circle_a) > 0:
+            self.circle_collision(
+                np.array(colliding_circle_a), np.array(colliding_circle_b)
+            )
+
+    def circle_collision(self, circle1: np.ndarray, circle2: np.ndarray) -> None:
         """
         Handle the collision between two circles.
 
-        :param circle1: The first circle to collide
-        :param circle2: The second circle to collide
+        :param circle1: The first circle array to collide
+        :param circle2: The second circle array to collide
         """
         # Calculate distance between circle centers
-        normal = self.positions[circle2] - self.positions[circle1]
+        vectors = self.positions[circle2] - self.positions[circle1]
 
-        # Calculate the distance between the two circles
-        distance = np.linalg.norm(normal)
+        # Finding length of all vectors
+        distances = np.linalg.norm(vectors, axis=1)
 
-        # Avoid division by zero
-        if distance == 0:
+        # Avoid dividing by zero (finding which are not zero)
+        non_zero = np.where(distances != 0)[0]
+
+        # Removes elementes where distance is zero
+        vectors = vectors[non_zero]
+        distances = distances[non_zero]
+        circle1 = circle1[non_zero]
+        circle2 = circle2[non_zero]
+
+        # If there is no element, there is nothing to do
+        if len(non_zero) == 0:
             return
 
-        # Normalize the normal vector
-        normal /= distance
+        # Newaxis for mulipling/dividing by scalars (convert to 2D)
+        normalized_vectors = vectors / distances[:, np.newaxis]
 
         # Calculate normal velocities
-        vec1_normal = np.dot(self.velocities[circle1], normal)
-        vec2_normal = np.dot(self.velocities[circle2], normal)
+        vec1_normals = np.vecdot(self.velocities[circle1], normalized_vectors)
+        vec2_normals = np.vecdot(self.velocities[circle2], normalized_vectors)
 
-        # Calculate the reduced mass for the collision
-        mass = (self.masses[circle1] * self.masses[circle2]) / (
+        masses = (self.masses[circle1] * self.masses[circle2]) / (
             self.masses[circle1] + self.masses[circle2]
         )
 
-        # Calculate new velocities in the normal direction using the impulse formula (charles)
-        new_normal1 = vec1_normal + (mass / self.masses[circle1]) * (
+        # Calculate new normal velocities using impulse
+        impulse_normals1 = vec1_normals + (masses / self.masses[circle1]) * (
             1 + COEFFICIENT_OF_RESTITUTION
-        ) * (vec2_normal - vec1_normal)
-        new_normal2 = vec2_normal - (mass / self.masses[circle2]) * (
+        ) * (vec2_normals - vec1_normals)
+        impulse_normals2 = vec2_normals - (masses / self.masses[circle2]) * (
             1 + COEFFICIENT_OF_RESTITUTION
-        ) * (vec2_normal - vec1_normal)
+        ) * (vec2_normals - vec1_normals)
 
         # Calculate tangential velocities
-        v1_tangent = self.velocities[circle1] - vec1_normal * normal
-        v2_tangent = self.velocities[circle2] - vec2_normal * normal
-
-        # Update the velocities by combining normal and tangential components
-        self.velocities[circle1] = new_normal1 * normal + v1_tangent
-        self.velocities[circle2] = new_normal2 * normal + v2_tangent
-
-        # Resolve the overlap between the circles by moving them apart
-        # Got some help from my father to understand when it has a overlap
-        overlap = self.radiuses[circle1] + self.radiuses[circle2] - distance
-        total_mass = self.masses[circle1] + self.masses[circle2]
-
-        # Displace the circles proportionally to their masses
-        self.positions[circle1] -= (
-            overlap * (self.masses[circle2] / total_mass) * normal
+        v1_tangents = (
+            self.velocities[circle1] - vec1_normals[:, np.newaxis] * normalized_vectors
         )
-        self.positions[circle2] += (
-            overlap * (self.masses[circle1] / total_mass) * normal
+        v2_tangents = (
+            self.velocities[circle2] - vec2_normals[:, np.newaxis] * normalized_vectors
         )
+
+        # Add to the velocity, so show the direction
+        self.velocities[circle1] = (
+            impulse_normals1[:, np.newaxis] * normalized_vectors
+        ) + v1_tangents
+        self.velocities[circle2] = (
+            impulse_normals2[:, np.newaxis] * normalized_vectors + v2_tangents
+        )
+
+        # Resolve overlap by separating circles
+        overlaps = self.radiuses[circle1] + self.radiuses[circle2] - distances
+        total_masses = self.masses[circle1] + self.masses[circle2]
+
+        # Displace circles proportionally to their masses
+        self.positions[circle1] -= (overlaps * self.masses[circle2] / total_masses)[
+            :, np.newaxis
+        ] * normalized_vectors
+        self.positions[circle2] += (overlaps * self.masses[circle1] / total_masses)[
+            :, np.newaxis
+        ] * normalized_vectors
 
 
 def main() -> None:
