@@ -4,13 +4,10 @@ import numpy as np
 # (A)
 def divdiff(X):
     # X ... a list of points [xi, yi]
-    if len(X) == 1:
+    if np.size(X, axis=0) == 1:
         return X[0][1]
     else:
-        # Here recursive call of divdiff
-        X_right = X[:-1]
-        X_left = X[1:]
-        return (divdiff(X_right) - divdiff(X_left)) / (X[-1][0] - X[0][0])
+        return (divdiff(X[1:]) - divdiff(X[:-1])) / (X[-1][0] - X[0][0])
 
 
 # (B)
@@ -19,23 +16,14 @@ def newton(X, x):
     # - X ... a list of points [xi, yi]
     # - x ... value (argument of function)
     # output: function value of the interpolating polynomial
-    n = len(X)
-    result = X[0][1]  # Start with c0
-
-    # For each term, calculate the product (x-x0)*(x-x1)*...*(x-x_{i-1})
-    prod = 1.0
-
-    for i in range(1, n):
-        # Update the product term by multiplying with (x-x_{i-1})
-        prod *= x - X[i - 1][0]
-
-        # Calculate the coefficient using divdiff
-        coef = divdiff(X[: i + 1])
-
-        # Add this term to the result
-        result += coef * prod
-
-    return result
+    svar = 0
+    for i in range(len(X)):
+        c = divdiff(X[: i + 1])
+        a = 1
+        for k in range(i):
+            a *= x - X[k][0]
+        svar += c * a
+    return svar
 
 
 # A
