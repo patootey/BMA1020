@@ -25,29 +25,8 @@ def interpolate_quaternion(Rotations, times, t):
     if i == -1:
         return False
     else:
-        t0 = times[i]
-        t1 = times[i + 1]
-
-        s = (t - t0) / (t1 - t0)
-
-        q0_scalar = Rotations.scalar[i]
-        q0_vec = Rotations.vec[:, i].reshape(3, 1)
-        q1_scalar = Rotations.scalar[i + 1]
-        q1_vec = Rotations.vec[:, i + 1].reshape(3, 1)
-
-        q0 = Quaternion([q0_scalar], q0_vec)
-        q1 = Quaternion([q1_scalar], q1_vec)
-
-        result_scalar = (1 - s) * q0.scalar + s * q1.scalar
-        result_vec = (1 - s) * q0.vec + s * q1.vec
-
-        result = Quaternion(result_scalar, result_vec)
-
-        norm = abs(result)
-        result.scalar = result.scalar / norm
-        result.vec = result.vec / norm
-
-        return result
+        # Adapt the code that follows within this function :::::::::::::::::::::
+        return
 
 
 # No need to change anything after this line :::::::::::::::::::::::::::::::::::
@@ -65,9 +44,8 @@ print(np.round(qnew.scalar, 5))
 
 
 """
-
-[[0.65106]
- [0.72991]
- [0.20472]]
-[-0.03784]
+[[-0.39946]
+ [-0.40014]
+ [ 0.10287]]
+[-0.81838]
 """
