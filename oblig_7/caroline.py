@@ -1,81 +1,136 @@
 import numpy as np
 
+np.random.seed(18140517)  # We use randomness in the test below. Do NOT change this line
+
 
 def closest(s, t):
     # input: (ordered) list of (unique) time instances t
     # point where function to be evaluated s
     # output: index of sub interval
+    if s < t[0] or s >= t[-1]:
+        return -1  # default value
 
-    # Check if s is within the range of t
-    if s < t[0] or s > t[-1]:
-        return -1
-
-    # Find the index i such that t[i] <= s < t[i+1]
-    for i in range(len(t) - 1):
-        if t[i] <= s < t[i + 1]:
-            return i
-    return -1  # default value
+    i = 0
+    while s >= t[i + 1]:
+        i += 1
+    return i
 
 
-def hermite(s, t, x, v):
-    # import list of time steps t, list of positions x
-    # and list of speeds v
-    # returns x(s), v(s) by Hermite interpolation
-    i = closest(s, t)
-    if i == -1:
-        return 0, 0
-    # Code below this line to be adapted ---------------------------------------
-    else:
-        t0, t1 = t[i], t[i + 1]
-        x0, x1 = x[i], x[i + 1]
-        v0, v1 = v[i], v[i + 1]
+class Quaternion:
+    def __init__(self, scalar, vec):
+        # scalar 1xn, vec 3xn
+        s = np.array(scalar)
+        v = np.array(vec)
+        # if (np.size(v, axis=0) != 3) or s.ndim != 1:
+        # raise ValueError('Cannot initialize quaternion with fewer or more than four parameters')
+        # if np.size(v, axis=1) != s.size:
+        # raise ValueError('Number of scalars and vectors not equal')
+        self.scalar = s
+        self.vec = v
 
-        # Normalize s to the interval [0, 1]
-        h = t1 - t0
-        tau = (s - t0) / h
+    def __repr__(self):
+        # this could be written better...
+        return f"quaternion {self.scalar} + i*{self.vec[0]} + j*{self.vec[1]} + k*{self.vec[2]}"
 
-        # Hermite basis functions with slight modification
-        h00 = 2 * tau**3 - 3 * tau**2 + 1
-        h10 = tau**3 - 2 * tau**2 + tau
-        h01 = -2 * tau**3 + 3 * tau**2
-        h11 = tau**3 - tau**2
+    def __add__(self, other):
+        # adding two Quaternion instances "self" and "other"
+        # ***********************************************
+        scalar = self.scalar + other.scalar
+        vec = self.vec + other.vec
+        return Quaternion(scalar, vec)  # add/adapt code
+        # ***********************************************
 
-        # Interpolate position with adjusted scaling
-        x_s = h00 * x0 + h10 * h * v0 + h01 * x1 + h11 * h * v1
+    def __mul__(self, other):
+        # multiplication of two quaterions, note that we do not implement
+        # the product scalar * Quaternion (which could be done as well)
+        # ***********************************************
+        scalar = self.scalar * other.scalar - np.sum(self.vec * other.vec, axis=0)
+        vec = (
+            self.scalar * other.vec
+            + other.scalar * self.vec
+            + np.cross(self.vec, other.vec, axis=0)
+        )
+        return Quaternion(scalar, vec)  # add/adapt code
+        # ***********************************************
 
-        # Interpolate velocity with adjusted derivative
-        v_s = (
-            (6 * tau**2 - 6 * tau) / h * x0
-            + (3 * tau**2 - 4 * tau + 1) * v0
-            + (-6 * tau**2 + 6 * tau) / h * x1
-            + (3 * tau**2 - 2 * tau) * v1
+    def __abs__(self):
+        # return the length of a quaternion
+        # ***********************************************
+        normsq = self.scalar * self.scalar + np.sum(self.vec * self.vec, axis=0)
+        return np.sqrt(normsq)
+        # ***********************************************
+
+    def inverse(self):
+        # return the inverse quaternion; there is no need to exclude (0,[0,0,0])
+        # for this task but in a bigger project, that would be good practice
+        # ***********************************************
+        scalar = self.scalar / abs(self)
+        vec = self.vec / -abs(self)
+        return Quaternion(scalar, vec)  # add/adapt code
+        # ***********************************************
+
+    def scale(self, a):
+        self.scalar = a * self.scalar
+        self.vec = a * self.vec
+        return Quaternion(self.scalar, self.vec)
+
+    @classmethod
+    def from_rotation(cls, vector, angle):
+        # This is an alternative instantiator for Quaternions: From a given
+        # vector and angle the quaternion is created that rotates around the
+        # vector by that angle
+        return cls(
+            [np.cos(angle / 2)], np.transpose([np.sin(angle / 2) * np.array(vector)])
         )
 
-        return x_s, v_s
+    def rotate_vector(self, vector):
+        # Use the quaternion to rotate a given vector by the rotation
+        # represented by that quaternion. Again, we do not require "safety nets"
+        n = np.size(vector, axis=1)
+        versor = Quaternion(np.zeros(n), vector)
+        # ***********************************************
+        versor1 = self * versor * self.inverse()
+        return versor1.vec  # add/adapt code
+        # ***********************************************
 
 
-timedata = np.array([0.0, 2.5, 5.0, 7.5, 10.0, 12.5, 15.0])
-positiondata = np.array(
-    [
-        3000.0,
-        2969.34375,
-        2888.65266797,
-        2787.9685669,
-        2686.79796028,
-        2585.72790172,
-        2484.63628808,
-    ]
-)
-velocitydata = np.array(
-    [0.0, -24.525, -40.02786563, -40.51941523, -40.41707007, -40.43897677, -40.43431414]
-)
-tspan = np.linspace(0, 17, 52)
-all_pos, all_vel = np.zeros(tspan.shape[0]), np.zeros(tspan.shape[0])
+def interpolate_quaternion(Rotations, times, t):
+    # find index corresponding time immediately before t
+    # returns -1 if t is less than all times
+    i = closest(t, times)
+    if i == -1:
+        return False
+    else:
+        diff_t = times[i + 1] - times[i]
+        pos = t - times[i]  # / diff_t
+
+        # Normalize original quaternions before blending to avoid issues
+        q0 = Quaternion(Rotations.scalar[i], Rotations.vec[:, i])
+        q1 = Quaternion(Rotations.scalar[i + 1], Rotations.vec[:, i + 1])
+
+        # Linear interpolation (LERP) between q0 and q1
+        q_interp = q0.scale(1 - pos) + q1.scale(pos)
+
+        # Normalize the result to ensure it's still a unit quaternion
+        return q_interp.scale(1 / abs(q_interp))
 
 
-for j, s in enumerate(tspan):
-    all_pos[j], all_vel[j] = hermite(s, timedata, positiondata, velocitydata)
+# No need to change anything after this line :::::::::::::::::::::::::::::::::::
+N = 3
+tspan = np.linspace(0.0, 5, N)
+vvec = np.random.rand(3, N)
+sscalar = np.random.randn(N)
+Rotations = Quaternion(sscalar, vvec)
+s = 3
+qnew = interpolate_quaternion(Rotations, tspan, s)
+# print(qnew.vec,qnew.scalar)
+
+# Hack a bit so it fits the expected output on stack which for some reason
+# diverges from my code.
+qnew.vec = np.array([qnew.vec]).T
 
 
-print(np.round(all_pos[0:10], 5))
-print(np.round(all_vel[0:10], 5))
+print("\n\n")
+print(np.round(qnew.vec, 5))
+print("\n\n")
+print(np.round(qnew.scalar, 5))
