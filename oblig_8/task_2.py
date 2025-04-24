@@ -111,25 +111,29 @@ def snell(theta_i, n1, n2):
 
 
 def incident(X0, X1, X2, x, r, n2, n1=1, pol=0.5):
-    # refractive indices of materials
-    # assume n1 = air/vacuum unless otherwise
     intersect, p, n, theta_i = plane_intersect(X0, X1, X2, x, r)
-    if not (intersect):
+    if not intersect:
         return False
+
+    # Calculate transmitted angle using Snell's law
     theta_t = snell(theta_i, n1, n2)
-    if theta_t:
-        # Calculate cos for Fresnel equations
-        cos_i = np.cos(theta_i)
-        cos_t = np.cos(theta_t)
+
     # The wave impedances
     Z0 = 376
     Z1 = Z0 / n1
     Z2 = Z0 / n2
 
+    # Calculate cosines for Fresnel equations
+    cos_i = np.cos(theta_i)
+
     if theta_t is False:  # Total internal reflection
         Rp = 1.0
         Rs = 1.0
+        T = 0.0  # No transmission in total internal reflection
+        return R, np.pi - theta_i, T, None  # Return None for theta_t in TIR case
     else:
+        cos_t = np.cos(theta_t)
+
         # Fresnel equations using the wave impedances
         # For p-polarization (parallel)
         Rp = ((Z2 * cos_i - Z1 * cos_t) / (Z2 * cos_i + Z1 * cos_t)) ** 2
@@ -137,11 +141,14 @@ def incident(X0, X1, X2, x, r, n2, n1=1, pol=0.5):
         # For s-polarization (perpendicular)
         Rs = ((Z1 * cos_i - Z2 * cos_t) / (Z1 * cos_i + Z2 * cos_t)) ** 2
 
-    R = pol * Rp + (1 - pol) * Rs
-    # 1 - R is the power transmitted in the normal direction
-    T = 1 - R
+        # Combined reflection coefficient based on polarization
+        R = pol * Rp + (1 - pol) * Rs
 
-    return R, np.pi - theta_i, T, theta_t
+        # Calculate transmission coefficient with the correct formula
+        # T = (cos_i / cos_t) * (1 - R)
+        T = (n2 * cos_t) / (n1 * cos_i) * (1 - R)
+
+        return R, np.pi - theta_i, T, theta_t
 
 
 X0 = np.array([0, 0, 1])
