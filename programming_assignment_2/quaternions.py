@@ -85,11 +85,11 @@ class Quaternion:
     @classmethod
     def model_rect(
         cls,
-        x_min,
-        x_max,
+        x_min: float,
+        x_max: float,
         num_x_divisions: int,
-        y_min,
-        y_max,
+        y_min: float,
+        y_max: float,
         num_y_divisions: int,
         emission_color: np.ndarray = np.array([0, 0, 0]),
         reflect: np.ndarray = np.array([0.5, 0.5, 0.5]),
@@ -112,20 +112,20 @@ class Quaternion:
                 )
             )
         )
-        c = np.zeros((num_x_divisions * num_y_divisions, 1))
-        vertices = np.hstack((Z, c))
+        divisions = np.zeros((num_x_divisions * num_y_divisions, 1))
+        vertices = np.hstack((Z, divisions))
 
         # Create triangles by connecting grid points
         triangle_indices = []
 
         # For an m×n grid of points, we create 2×(m-1)×(n-1) triangles
-        for i in range(num_y_divisions - 1):
-            for j in range(num_x_divisions - 1):
+        for y_div in range(num_y_divisions - 1):
+            for x_div in range(num_x_divisions - 1):
                 # Calculate vertex indices for the current grid cell
                 # The grid is laid out row by row
-                top_left = i * num_x_divisions + j
+                top_left = y_div * num_x_divisions + x_div
                 top_right = top_left + 1
-                bottom_left = (i + 1) * num_x_divisions + j
+                bottom_left = (y_div + 1) * num_x_divisions + x_div
                 bottom_right = bottom_left + 1
 
                 # Create two triangles per grid cell
@@ -141,16 +141,18 @@ class Quaternion:
         quaternion_rotation = cls.from_rotation(np.array(rotation_axis), rotation_angle)
 
         # Apply rotation and translation
-        for i in range(len(vertices)):
+        for y_div in range(len(vertices)):
             # First rotate using the quaternion
-            quaternion_vertex = cls(0, vertices[i])
+            quaternion_vertex = cls(0, vertices[y_div])
+
+            # KAN ENDRE TIL ROATATE VECTORS I STEDENFOR
             rotated_vertex = (
                 quaternion_rotation * quaternion_vertex * quaternion_rotation.inverse()
             )
-            vertices[i] = rotated_vertex.vector
+            vertices[y_div] = rotated_vertex.vector
 
             # Then translate
-            vertices[i] += np.array(translated_vector)
+            vertices[y_div] += np.array(translated_vector)
 
         # Create arrays for emission and reflection values for each triangle
         num_triangles = len(triangle_indices)
