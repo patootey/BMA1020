@@ -61,7 +61,7 @@ class Light_room:
     "Array of triangle arrays"
     # colors: np.ndarray
     # "Array of color arrays"
-    fov: float = 75
+    fov: float = 100
     "Field of view"
     far: float = 1000
     "Far plane for camera"
@@ -428,20 +428,15 @@ class Light_room:
         vertex3 *= scale
 
         if trigon.index >= 0:
-            lms_emission = self.emit[trigon.index]
-            lms_reflection = self.reflect[trigon.index]
-
-            # # bare for test
-            # ambient_light = np.array([1, 0.5, 0.5])
-
-            final_lms = (
-                lms_emission + lms_reflection
-            )  # (lms_reflection * ambient_light)
-
-            final_lms = np.clip(final_lms, 0, 1)
-
-            rgb_color = LMS_to_RGB(final_lms)
-
+            # ER DETTE RIKTIG???
+            if self.luminances is not None:
+                lms_color = self.luminances[trigon.index]
+            else:
+                lms_color = self.emit[trigon.index]
+                # ANDERLEDES??
+                # CAROLINE DID DIFF, jeg hardkoder tydelgivis
+            # Convert LMS to RGB and scale to 0-255
+            rgb_color = LMS_to_RGB(lms_color)
             display_color = (rgb_color * 255).astype(np.uint8)
         else:
             display_color = trigon.color
@@ -501,8 +496,6 @@ class Light_room:
 
             # Get the new triangles
             for trigon in trigons:
-                # if len(trigon.color) == 0:
-                #     trigon.color = color
 
                 trigon.index = triangle_index
 
@@ -564,15 +557,18 @@ class Light_room:
         Uses the formula:
             Fij = (1/Ai) * ∫∫ (cos(θi)cos(θj)/(π*r²)) dAidAj
         """
-
+        # JVOR SKAL DISSE???
         self.update_geometry()
 
         num_triangles = len(self.triangle_indices)
+        self.form_factors = np.zeros((num_triangles, num_triangles))
 
         for i in range(num_triangles):
             for j in range(num_triangles):
                 if i == j:
-                    return 0.0
+                    # No self-illumination
+                    self.form_factors[i, j] = 0.0
+                    continue
 
                 # Get the coordinates of the nodes for elements i and j
 
@@ -584,7 +580,8 @@ class Light_room:
                 r_normalize = np.linalg.norm(r_vector)
 
                 if r_normalize == 0:
-                    return 0.0  # Avoid division by zero
+                    self.form_factors[i, j] = 0.0
+                    continue
 
                 # Unit direction vector
                 r_unit = r_vector / r_normalize
@@ -593,55 +590,52 @@ class Light_room:
                 dot_nj = np.dot(-r_unit, self.normals[j])
 
                 if dot_ni <= 0 or dot_nj <= 0:
-                    return 0.0  # Not visible
+                    self.form_factors[i, j] = 0.0
+                    continue
 
                 F_ij = self.areas[j] * (dot_ni * dot_nj) / (np.pi * r_normalize**2)
 
-                return F_ij
+                self.form_factors[i, j] = F_ij
 
-    def find_luminances(self, num_iterations=100):  # 20 points
-        # self.update_form_factors()
+        return self.form_factors
+
+    def find_luminances(self, num_iterations=100):
+        # if self.form_factors is None:
+        self.update_form_factors()
 
         num_triangles = len(self.triangle_indices)
 
-        # Initialize radiosity to direct emission values
+        # Initialize radiosity with just emission (no ambient light)
         radiosity = self.emit.copy()
 
-        # Iterative solution for the radiosity equation
-        for iteration in range(num_iterations):
-            # Store previous iteration values
+        # Store a copy of the initial emission for convergence
+        initial_emission = self.emit.copy()
+
+        for _ in range(num_iterations):
             prev_radiosity = radiosity.copy()
-
-            # Calculate new radiosity values
             for i in range(num_triangles):
-                # Direct emission component
-                radiosity[i] = self.emit[i].copy()
+                # Start with direct emission only (no ambient term)
+                radiosity[i] = initial_emission[i].copy()
 
-                # Calculate reflected component for each LMS channel
+                # Add reflected component from all other surfaces
                 for j in range(num_triangles):
-                    # Skip self-interaction
                     if i == j:
                         continue
-
-                    # Add contribution from each triangle j
-                    # Formula: Ei + Ri * sum(Fij * Φj)
+                    # Light that bounces from surface j to surface i
                     radiosity[i] += (
                         self.reflect[i] * self.form_factors[i, j] * prev_radiosity[j]
                     )
-        # Clip values to valid range
-        radiosity = np.clip(radiosity, 0, 1)
 
-        # Store the results
-        self.luminances = radiosity
-
-        return radiosity
+        # Store and return results
+        self.luminances = np.clip(radiosity, 0, 1)
+        return self.luminances
 
     def find_colors(self, num_iterations=100):  # 10 points
         """
         Calculate RGB colors from LMS luminances.
 
         Args:
-            n: Number of iterations for the radiosity calculation
+            num_iterations: Number of iterations for the radiosity calculation
 
         Returns:
             Array of RGB colors for each triangle
@@ -657,68 +651,81 @@ class Light_room:
         for index in range(num_triangles):
             rgb_colors[index] = LMS_to_RGB(lms_luminances[index])
 
-        # Store the results
-        self.colors = rgb_colors
+        # # Store the results
+        # self.colors = rgb_colors
 
         return rgb_colors
 
+    # 10 points
+    @classmethod
+    def model_rect(
+        cls,
+        x_min: float,
+        x_max: float,
+        num_x_divisions: int,
+        y_min: float,
+        y_max: float,
+        num_y_divisions: int,
+        emission_color: np.ndarray = np.array([0, 0, 0]),
+        reflect: np.ndarray = np.array([0.5, 0.5, 0.5]),
+        translated_vector: np.ndarray = np.array([0, 0, 0]),
+        rotation_axis: np.ndarray = np.array([0, 0, 1]),
+        rotation_angle: float = 0,
+        flip_normals: bool = False,
+    ):
+        x = np.linspace(x_min, x_max, num_x_divisions)
+        y = np.linspace(y_min, y_max, num_y_divisions)
+        grid_x, grid_y = np.meshgrid(x, y)
+        Z = np.transpose(
+            np.vstack(
+                (
+                    grid_x.reshape(num_y_divisions * num_x_divisions),
+                    grid_y.reshape(num_y_divisions * num_x_divisions),
+                )
+            )
+        )
+        divisions = np.zeros((num_x_divisions * num_y_divisions, 1))
+        vertices = np.hstack((Z, divisions))
 
-def create_light_room():
-    pass
-    # FIX ETTERPÅÅÅÅ
-    # light1_size = 20
-    # light1_vertices, light1_indices, light1_emit, light1_reflect = (
-    #     Quaternion.model_rect(
-    #         -size / 5 - light1_size / 2,
-    #         -size / 5 + light1_size / 2,
-    #         2,
-    #         -size / 5 - light1_size / 2,
-    #         -size / 5 + light1_size / 2,
-    #         2,
-    #         emission_color=np.array([1.0, 1.0, 1.0]),  # Strong white emission
-    #         reflect=np.array([0.0, 0.0, 0.0]),
-    #         translated_vector=np.array(
-    #             [-size / 8, -size / 2, -size / 8]
-    #         ),  # Position on ceiling
-    #         rotation_axis=np.array([1, 0, 0]),
-    #         rotation_angle=np.pi / 2,
-    #     )
-    # )
-    # )
-    # light1 = Light_room(
-    #     vertices=light1_vertices,
-    #     triangle_indices=light1_indices,
-    #     emit=light1_emit,
-    #     reflect=light1_reflect,
-    # )
-    # cube.add_model(light1)
+        # Create triangles by connecting grid points
+        triangle_indices = []
 
-    # light2_size = 20
-    # light2_vertices, light2_indices, light2_emit, light2_reflect = (
-    #     Quaternion.model_rect(
-    #         size / 5 - light2_size / 2,
-    #         size / 5 + light2_size / 2,
-    #         2,  # Fewer divisions for the light
-    #         size / 5 - light2_size / 2,
-    #         size / 5 + light2_size / 2,
-    #         2,
-    #         emission_color=np.array([1.0, 1.0, 1.0]),
-    #         reflect=np.array([0.0, 0.0, 0.0]),
-    #         translated_vector=np.array(
-    #             [size / 8, -size / 2, size / 8]
-    #         ),  # Position on ceiling
-    #         rotation_axis=np.array([1, 0, 0]),
-    #         rotation_angle=np.pi / 2,
-    #     )
-    # )
-    # )
-    # light2 = Light_room(
-    #     vertices=light2_vertices,
-    #     triangle_indices=light2_indices,
-    #     emit=light2_emit,
-    #     reflect=light2_reflect,
-    # )
-    # cube.add_model(light2)
+        for x_div in range(num_y_divisions - 1):
+            for y_div in range(num_x_divisions - 1):
+                # The grid is laid out row by row
+                top_left = x_div * num_x_divisions + y_div
+                top_right = top_left + 1
+                bottom_left = (x_div + 1) * num_x_divisions + y_div
+                bottom_right = bottom_left + 1
+
+                if not flip_normals:
+                    # Clockwise
+                    triangle_indices.append([top_left, top_right, bottom_left])
+                    triangle_indices.append([bottom_left, top_right, bottom_right])
+                else:
+                    # Flipped counter-clockwise
+                    triangle_indices.append([bottom_left, top_right, top_left])
+                    triangle_indices.append([bottom_right, top_right, bottom_left])
+
+        triangle_indices = np.array(triangle_indices)
+
+        quaternion_rotation = Quaternion.from_rotation(
+            np.array(rotation_axis), rotation_angle
+        )
+
+        # Apply rotation to all vertices at once using rotate_vectors
+        rotated_vectors = quaternion_rotation.rotate_vectors(vertices)
+
+        # Apply translation to all rotated vertices
+        for index in range(len(vertices)):
+            vertices[index] = rotated_vectors[index] + np.array(translated_vector)
+
+        # Create arrays for emission and reflection values for each triangle
+        emit_array = np.array([emission_color for _ in range(len(triangle_indices))])
+        reflect_array = np.array([reflect for _ in range(len(triangle_indices))])
+
+        # Return all components needed to create the rectangle model
+        return vertices, triangle_indices, emit_array, reflect_array
 
 
 def main():
@@ -734,7 +741,7 @@ def main():
     cube_divisions = 5
 
     # Front face - Red
-    front_vertices, front_indices, front_emit, front_reflect = Quaternion.model_rect(
+    front_vertices, front_indices, front_emit, front_reflect = cube.model_rect(
         -size / 2,
         size / 2,
         cube_divisions,
@@ -742,10 +749,11 @@ def main():
         size / 2,
         cube_divisions,
         emission_color=np.array([0.2, 0.0, 0.0]),  # Red emission
-        reflect=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.3, 0.1, 0.2]),
         translated_vector=np.array([0, 0, size / 2]),  # Front position
         rotation_axis=np.array([0, 0, 1]),
         rotation_angle=0,  # No rotation needed
+        flip_normals=True,
     )
 
     front_face = Light_room(
@@ -757,7 +765,7 @@ def main():
     cube.add_model(front_face)
 
     # Back face - Cyan
-    back_vertices, back_indices, back_emit, back_reflect = Quaternion.model_rect(
+    back_vertices, back_indices, back_emit, back_reflect = cube.model_rect(
         -size / 2,
         size / 2,
         cube_divisions,
@@ -765,10 +773,11 @@ def main():
         size / 2,
         cube_divisions,
         emission_color=np.array([0.0, 0.2, 0.2]),  # Cyan emission
-        reflect=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.2, 0.3, 0.4]),
         translated_vector=np.array([0, 0, -size / 2]),  # Back position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi,  # 180 degree rotation
+        flip_normals=True,
     )
     back_face = Light_room(
         vertices=back_vertices,
@@ -779,7 +788,7 @@ def main():
     cube.add_model(back_face)
 
     # Right face - Pink
-    right_vertices, right_indices, right_emit, right_reflect = Quaternion.model_rect(
+    right_vertices, right_indices, right_emit, right_reflect = cube.model_rect(
         -size / 2,
         size / 2,
         cube_divisions,
@@ -787,7 +796,7 @@ def main():
         size / 2,
         cube_divisions,
         emission_color=np.array([0.5, 0.1, 0.2]),  # Pink emission
-        reflect=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.3, 0.5, 0.5]),
         translated_vector=np.array([size / 2, 0, 0]),  # Right position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -801,7 +810,7 @@ def main():
     cube.add_model(right_face)
 
     # Left face - Purple
-    left_vertices, left_indices, left_emit, left_reflect = Quaternion.model_rect(
+    left_vertices, left_indices, left_emit, left_reflect = cube.model_rect(
         -size / 2,
         size / 2,
         cube_divisions,
@@ -809,7 +818,7 @@ def main():
         size / 2,
         cube_divisions,
         emission_color=np.array([0.1, 0.0, 0.2]),  # Purple emission
-        reflect=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.2, 0.5, 0.5]),
         translated_vector=np.array([-size / 2, 0, 0]),  # Left position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -823,7 +832,7 @@ def main():
     cube.add_model(left_face)
 
     # Top face - Green with two light sources
-    top_vertices, top_indices, top_emit, top_reflect = Quaternion.model_rect(
+    top_vertices, top_indices, top_emit, top_reflect = cube.model_rect(
         -size / 2,
         size / 2,
         cube_divisions,
@@ -831,10 +840,11 @@ def main():
         size / 2,
         cube_divisions,
         emission_color=np.array([0.0, 0.2, 0.0]),  # Green emission
-        reflect=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.3, 0.5, 0.5]),
         translated_vector=np.array([0, -size / 2, 0]),  # Top position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
+        flip_normals=True,
     )
     top_face = Light_room(
         vertices=top_vertices,
@@ -844,20 +854,19 @@ def main():
     )
     cube.add_model(top_face)
     # Bottom face - Yellow
-    bottom_vertices, bottom_indices, bottom_emit, bottom_reflect = (
-        Quaternion.model_rect(
-            -size / 2,
-            size / 2,
-            cube_divisions,
-            -size / 2,
-            size / 2,
-            cube_divisions,
-            emission_color=np.array([0.2, 0.2, 0.0]),  # Yellow emission
-            reflect=np.array([0.0, 0.0, 0.0]),
-            translated_vector=np.array([0, size / 2, 0]),  # Bottom position
-            rotation_axis=np.array([1, 0, 0]),
-            rotation_angle=-np.pi / 2,  # -90 degree rotation
-        )
+    bottom_vertices, bottom_indices, bottom_emit, bottom_reflect = cube.model_rect(
+        -size / 2,
+        size / 2,
+        cube_divisions,
+        -size / 2,
+        size / 2,
+        cube_divisions,
+        emission_color=np.array([0.2, 0.2, 0.0]),  # Yellow emission
+        reflect=np.array([0.3, 0.5, 0.5]),
+        translated_vector=np.array([0, size / 2, 0]),  # Bottom position
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=-np.pi / 2,  # -90 degree rotation
+        flip_normals=True,
     )
 
     bottom_face = Light_room(
@@ -868,23 +877,21 @@ def main():
     )
     cube.add_model(bottom_face)
 
-    light1_size = 30
+    light_size = 30
     light_division = 2
 
-    light1_vertices, light1_indices, light1_emit, light1_reflect = (
-        Quaternion.model_rect(
-            -size / 5 - light1_size / 2,
-            -size / 5 + light1_size / 2,
-            light_division,
-            -size / 5 - light1_size / 2,
-            -size / 5 + light1_size / 2,
-            light_division,
-            emission_color=np.array([1.0, 1.0, 1.0]),  # Strong white emission
-            reflect=np.array([1.0, 1.0, 0.0]),
-            translated_vector=np.array([0, size / 2, 0]),
-            rotation_axis=np.array([1, 0, 0]),
-            rotation_angle=np.pi / 2,
-        )
+    light1_vertices, light1_indices, light1_emit, light1_reflect = cube.model_rect(
+        -size / 5 - light_size / 2,
+        -size / 5 + light_size / 2,
+        light_division,
+        -size / 5 - light_size / 2,
+        -size / 5 + light_size / 2,
+        light_division,
+        emission_color=np.array([2.0, 2.0, 2.0]),  # Strong white emission
+        reflect=np.array([0.0, 0.0, 0.0]),
+        translated_vector=np.array([0, size / 2, 0]),
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=np.pi / 2,
     )
 
     top_light = Light_room(
@@ -894,6 +901,34 @@ def main():
         reflect=light1_reflect,
     )
     cube.add_model(top_light)
+
+    light2_vertices, light2_indices, light2_emit, light2_reflect = cube.model_rect(
+        size / 5 - light_size / 2,
+        size / 5 + light_size / 2,
+        light_division,
+        size / 5 - light_size / 2,
+        size / 5 + light_size / 2,
+        light_division,
+        emission_color=np.array([2.0, 2.0, 2.0]),  # Strong white emission
+        reflect=np.array([0.0, 0.0, 0.0]),
+        translated_vector=np.array([0, size / 2, 0]),
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=np.pi / 2,
+    )
+
+    top2_light = Light_room(
+        vertices=light2_vertices,
+        triangle_indices=light2_indices,
+        emit=light2_emit,
+        reflect=light2_reflect,
+    )
+    cube.add_model(top2_light)
+
+    print("Calculating form factors...")
+    cube.update_form_factors()
+
+    print("Calculating light luminaces...")
+    cube.find_luminances(num_iterations=50)
 
     # Initial preparation in case the drawing function is called
     cube.prepare()
