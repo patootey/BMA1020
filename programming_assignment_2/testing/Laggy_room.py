@@ -16,7 +16,7 @@ Debug:
 Author: Mathilde Borsodi Hegna
 """
 
-from global_functions import (
+from programming_assignment_2.testing.global_functions2 import (
     distance_point_to_plane,
     line_intersect_plane,
     Trigon,
