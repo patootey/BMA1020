@@ -21,6 +21,7 @@ from global_functions import (
     line_intersect_plane,
     Trigon,
     vector_normalize,
+    LMS_to_RGB,
 )
 import numpy as np
 import pyglet
@@ -86,6 +87,43 @@ g_colors = np.array(
     dtype=np.uint32,
 )
 
+# FIKK AV CHAT, bare for å teste
+g_emit = np.array(
+    [
+        [0.2, 0.1, 0.0],  # Face 1 - slight reddish emission
+        [0.2, 0.1, 0.0],  # Face 2
+        [0.1, 0.2, 0.0],  # Face 3 - slight greenish emission
+        [0.1, 0.2, 0.0],  # Face 4
+        [0.0, 0.1, 0.2],  # Face 5 - slight bluish emission
+        [0.0, 0.1, 0.2],  # Face 6
+        [0.1, 0.0, 0.1],  # Face 7 - slight magenta emission
+        [0.1, 0.0, 0.1],  # Face 8
+        [0.1, 0.1, 0.0],  # Face 9 - slight yellow emission
+        [0.1, 0.1, 0.0],  # Face 10
+        [0.0, 0.1, 0.1],  # Face 11 - slight cyan emission
+        [0.0, 0.1, 0.1],  # Face 12
+    ],
+    dtype=np.float32,
+)
+# Define reflection values in LMS space for each triangle face
+g_reflect = np.array(
+    [
+        [0.8, 0.2, 0.2],  # Face 1 - mostly reflects red
+        [0.8, 0.2, 0.2],  # Face 2
+        [0.2, 0.8, 0.2],  # Face 3 - mostly reflects green
+        [0.2, 0.8, 0.2],  # Face 4
+        [0.2, 0.2, 0.8],  # Face 5 - mostly reflects blue
+        [0.2, 0.2, 0.8],  # Face 6
+        [0.8, 0.2, 0.8],  # Face 7 - reflects red and blue (magenta)
+        [0.8, 0.2, 0.8],  # Face 8
+        [0.8, 0.8, 0.2],  # Face 9 - reflects red and green (yellow)
+        [0.8, 0.8, 0.2],  # Face 10
+        [0.2, 0.8, 0.8],  # Face 11 - reflects green and blue (cyan)
+        [0.2, 0.8, 0.8],  # Face 12
+    ],
+    dtype=np.float32,
+)
+
 
 class Light_Model_3d:
     vertices: np.ndarray
@@ -120,6 +158,10 @@ class Light_Model_3d:
     "The rotation angle of the cube around the Z-axis"
     position: np.ndarray
     "The position of the cube"
+    emit: np.ndarray
+    "Array of emission values for triangles"
+    reflect: np.ndarray
+    "Array of reflection values for triangles"
 
     # CHANGE OUT THE COLOR WITH EMIT AND REFLECT
     def __init__(
@@ -137,6 +179,8 @@ class Light_Model_3d:
         :param vertices: This is the vertices of the model.
         :param triangle_indices: This is the triangles of the model, referencing vertices.
         :param colors: This is the colors for the triangles, same size as triangle_indices.
+        :param emit: Emission values for triangles, same size as triangle_indices.
+        :param reflect: Reflection values for triangles, same size as triangle_indices.
         """
         # Previous named: nodes
         self.vertices = vertices
@@ -149,6 +193,10 @@ class Light_Model_3d:
         self.triangles = []
         self.lines = []
         self.position = np.array([0, 0, 200])
+
+        # THE NEW
+        self.emit = emit
+        self.reflect = reflect
 
     def prepare(self) -> None:
         """
@@ -210,7 +258,13 @@ class Light_Model_3d:
         # Remove a vertex from the model
         self.vertices = np.delete(self.vertices, index, axis=0)
 
-    def add_triangle(self, triangle: np.ndarray, color: np.ndarray) -> None:  # 5 points
+    def add_triangle(
+        self,
+        triangle: np.ndarray,
+        color: np.ndarray,
+        emit: np.ndarray,
+        reflect: np.ndarray,
+    ) -> None:  # 5 points
         """
         Add triangle with a color.
 
@@ -222,6 +276,10 @@ class Light_Model_3d:
         self.triangle_indices = np.vstack((self.triangle_indices, np.array([triangle])))
         self.colors = np.vstack((self.colors, np.array([color])))
 
+        # NEW
+        self.emit = np.vstack((self.emit, np.array([emit])))
+        self.reflect = np.vstack((self.reflect, np.array([reflect])))
+
     def delete_triangle(self, index: int) -> None:  # 5 points
         """
         Delete a triangle at given index.
@@ -231,6 +289,9 @@ class Light_Model_3d:
         # Previously named: delete_element
         self.triangle_indices = np.delete(self.triangle_indices, index, axis=0)
         self.colors = np.delete(self.colors, index, axis=0)
+
+        self.emit = np.delete(self.emit, index, axis=0)
+        self.reflect = np.delete(self.reflect, index, axis=0)
 
     def rotate(self, quaternion: Quaternion) -> None:
         """
@@ -446,6 +507,23 @@ class Light_Model_3d:
         vertex2 *= scale
         vertex3 *= scale
 
+        if trigon.index >= 0:
+            lms_emission = self.emit[trigon.index]
+            lms_reflection = self.reflect[trigon.index]
+
+            # bare for test
+            ambient_light = np.array([1, 0.5, 0.5])
+
+            final_lms = lms_emission + (lms_reflection * ambient_light)
+
+            final_lms = np.clip(final_lms, 0, 1)
+
+            rgb_color = LMS_to_RGB(final_lms)
+
+            display_color = (rgb_color * 255).astype(np.uint8)
+        else:
+            display_color = trigon.color
+
         # Bulding the triangles shapes
         triangle = Triangle(
             vertex1[0],
@@ -454,7 +532,7 @@ class Light_Model_3d:
             vertex2[1],
             vertex3[0],
             vertex3[1],
-            color=tuple(trigon.color),
+            color=tuple(display_color),
             batch=self.batch,
         )
 
@@ -510,8 +588,7 @@ class Light_Model_3d:
 
 
 def main():
-    # Defining the cube object
-    cube = Light_Model_3d(g_vertices, g_triangle_indices, g_colors)
+    cube = Light_Model_3d(g_vertices, g_triangle_indices, g_colors, g_emit, g_reflect)
 
     # Example for deleting
     # cube.delete_vertex(0)
@@ -519,7 +596,7 @@ def main():
 
     # Example of adding
     # cube.add_vertex(np.array([200, -200, 200]))
-    # cube.add_triangle(np.array([8, 7, 6]), np.array(R))
+    # cube.add_triangle(np.array([8, 7, 6]), np.array(RED)), np.array([0.2, 0.2, 0.2]), np.array([0.8, 0.8, 0.8]))
 
     # Initial preperation incase the drawing function is called
     cube.prepare()
