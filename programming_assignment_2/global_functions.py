@@ -1,7 +1,7 @@
 """
 Code for handling vector functions and intersections & get the dataclass Trigon
 
-Author: Mathilde Borsodi Hegna
+@Author Mathilde Borsodi Hegna
 """
 
 import numpy as np
@@ -22,31 +22,6 @@ class Trigon:
     "Original index in triangle array"
     color: NDArray[np.int64]
     "Color of trigon"
-
-
-def LMS_to_RGB(lms: np.ndarray):  # 5 points
-    # Bradford's spectrally sharpened matrix (LLAB, CIECAM97s)
-    conversion_matrix = np.array(
-        [
-            [0.8951, 0.2664, -0.1614],
-            [-0.7502, 1.7135, 0.0367],
-            [0.0389, -0.0685, 1.0296],
-        ]
-    )
-
-    # Convert LMS to RGB
-    rgb = np.dot(conversion_matrix, lms)
-
-    # Ensure values are in valid range
-    return np.clip(rgb, 0, 1)
-
-
-def find_colors(self, n):  # 10 points
-    pass
-
-
-def find_luminances(self, n):  # 20 points
-    pass
 
 
 # General functions for vectors
