@@ -24,23 +24,6 @@ class Trigon:
     "Color of trigon"
 
 
-def LMS_to_RGB(luminances: np.ndarray):  # 5 points
-    # Bradford's spectrally sharpened matrix (LLAB, CIECAM97s)
-    conversion_matrix = np.array(
-        [
-            [0.8951, 0.2664, -0.1614],
-            [-0.7502, 1.7135, 0.0367],
-            [0.0389, -0.0685, 1.0296],
-        ]
-    )
-
-    # Convert LMS to RGB
-    rgb = np.dot(conversion_matrix, luminances)
-
-    # Ensure values are in valid range
-    return np.clip(rgb, 0, 1)
-
-
 # General functions for vectors
 def vector_dot_product(vector1: np.ndarray, vector2: np.ndarray):
     """
