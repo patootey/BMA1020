@@ -21,7 +21,7 @@ from global_functions2 import (
     line_intersect_plane,
     Trigon,
     vector_normalize,
-    LMS_to_RGB,
+    # LMS_to_RGB,
 )
 import numpy as np
 import pyglet
@@ -29,6 +29,7 @@ from pyglet.graphics import Batch
 from pyglet.window import key, Window
 from pyglet.shapes import Line, Triangle
 from quaternions2 import Quaternion
+from rgb import LMS_to_RGB
 
 # Global variables
 g_window_width = 1920
@@ -38,12 +39,6 @@ g_window = Window(g_window_width, g_window_height)
 g_keys = key.KeyStateHandler()
 g_window.push_handlers(g_keys)
 
-# RED = [255, 0, 0]
-# GREEN = [0, 255, 0]
-# BLUE = [0, 0, 255]
-# MAGENTA = [255, 0, 255]
-# YELLOW = [255, 255, 0]
-# CYAN = [0, 255, 255]
 FRAME_TIME: float = 1 / 60
 
 # Debug colors
@@ -90,12 +85,10 @@ class Light_room:
     reflect_array: np.ndarray
     "Array of reflection values for triangles"
 
-    # CHANGE OUT THE COLOR WITH EMIT AND REFLECT
     def __init__(
         self,
         vertices: np.ndarray,
         triangle_indices: np.ndarray,
-        # colors: np.ndarray,
         emit: np.ndarray,
         reflect: np.ndarray,
     ) -> None:
@@ -119,6 +112,8 @@ class Light_room:
         self.areas: np.ndarray = np.array([])
 
         self.form_factors: np.ndarray = np.array([])
+
+        self.color = np.zeros((len(triangle_indices), 3), dtype=np.int32)
 
     def prepare(self) -> None:
         """
@@ -183,7 +178,6 @@ class Light_room:
     def add_triangle(
         self,
         triangle: np.ndarray,
-        # color: np.ndarray,
         emit: np.ndarray,
         reflect: np.ndarray,
     ) -> None:  # 5 points
@@ -427,20 +421,6 @@ class Light_room:
         vertex2 *= scale
         vertex3 *= scale
 
-        # if trigon.index >= 0:
-        #     # ER DETTE RIKTIG???
-        #     if self.luminances is not None:
-        #         lms_color = self.luminances[trigon.index]
-        #     else:
-        #         lms_color = self.emit_array[trigon.index]
-        #         # ANDERLEDES??
-        #         # CAROLINE DID DIFF, jeg hardkoder tydelgivis
-        #     # Convert LMS to RGB and scale to 0-255
-        #     rgb_color = LMS_to_RGB(lms_color)
-        #     display_color = (rgb_color * 255).astype(np.uint8)
-        # else:
-        display_color = trigon.color
-
         # LEGGE TIL Å GJENBRUKE TRIANGLENE, finne de som er ledig og tegne, ellers tegn nye, hide før hver update.
         # Bulding the triangles shapes
         triangle = Triangle(
@@ -450,7 +430,7 @@ class Light_room:
             vertex2[1],
             vertex3[0],
             vertex3[1],
-            color=tuple(display_color),
+            color=tuple(trigon.color),
             batch=self.batch,
         )
 
@@ -482,7 +462,7 @@ class Light_room:
         # Draw the model to the screen
         # Rebuild the triangles for each edge
         for triangle_index in range(len(self.triangle_indices)):
-            # color = self.colors[triangle_index]
+            color = self.color[triangle_index]
             triangle_array: np.ndarray = self.triangle_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
             # Make sure the vertices does not get the same coords/index? noe i den duren?
@@ -497,6 +477,8 @@ class Light_room:
 
             # Get the new triangles
             for trigon in trigons:
+                if len(trigon.color) == 0:
+                    trigon.color = color
 
                 trigon.index = triangle_index
 
@@ -514,8 +496,8 @@ class Light_room:
         self.triangle_indices = np.vstack((self.triangle_indices, offset_indices))
 
         # Append emit and reflect values
-        self.emit_array = np.vstack((self.emit_array, other.emit))
-        self.reflect_array = np.vstack((self.reflect_array, other.reflect))
+        self.emit_array = np.vstack((self.emit_array, other.emit_array))
+        self.reflect_array = np.vstack((self.reflect_array, other.reflect_array))
 
         # MÅ FÅ LAGT TIL ORDENLIG FARGE?
 
@@ -645,7 +627,7 @@ class Light_room:
 
         # Initialize RGB colors array
         num_triangles = len(self.triangle_indices)
-        rgb_colors = np.zeros((num_triangles, 3))
+        rgb_colors = np.zeros((num_triangles, 3), dtype=np.int32)
 
         # Convert LMS to RGB for each triangle
         for index in range(num_triangles):
@@ -745,8 +727,8 @@ def main():
         -size / 2,
         size / 2,
         cube_divisions,
-        # emission_color=np.array([0.2, 0.0, 0.0]),  # Red emission
-        reflect=np.array([0.3, 0.1, 0.2]),
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.5, 0.1, 0.7]),
         translated_vector=np.array([0, 0, size / 2]),  # Front position
         rotation_axis=np.array([0, 0, 1]),
         rotation_angle=0,  # No rotation needed
@@ -770,7 +752,7 @@ def main():
         -size / 2,
         size / 2,
         cube_divisions,
-        # emission_color=np.array([0.0, 0.2, 0.2]),  # Cyan emission
+        emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.2, 0.3, 0.4]),
         translated_vector=np.array([0, 0, -size / 2]),  # Back position
         rotation_axis=np.array([1, 0, 0]),
@@ -793,8 +775,8 @@ def main():
         -size / 2,
         size / 2,
         cube_divisions,
-        # emission_color=np.array([0.5, 0.1, 0.2]),  # Pink emission
-        reflect=np.array([0.3, 0.5, 0.5]),
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.4, 0.2, 0.2]),
         translated_vector=np.array([size / 2, 0, 0]),  # Right position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -815,8 +797,8 @@ def main():
         -size / 2,
         size / 2,
         cube_divisions,
-        # emission_color=np.array([0.1, 0.0, 0.2]),  # Purple emission
-        reflect=np.array([0.2, 0.5, 0.5]),
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.1, 0.3, 0.5]),
         translated_vector=np.array([-size / 2, 0, 0]),  # Left position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -837,8 +819,8 @@ def main():
         -size / 2,
         size / 2,
         cube_divisions,
-        # emission_color=np.array([0.0, 0.2, 0.0]),  # Green emission
-        reflect=np.array([0.3, 0.5, 0.5]),
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.1, 0.6, 0.1]),
         translated_vector=np.array([0, -size / 2, 0]),  # Top position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -859,8 +841,8 @@ def main():
         -size / 2,
         size / 2,
         cube_divisions,
-        # emission_color=np.array([0.2, 0.2, 0.0]),  # Yellow emission
-        reflect=np.array([0.3, 0.5, 0.5]),
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.5, 0.1, 0.2]),
         translated_vector=np.array([0, size / 2, 0]),  # Bottom position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -885,7 +867,7 @@ def main():
         -size / 5 - light_size / 2,
         -size / 5 + light_size / 2,
         light_division,
-        emission=np.array([1.0, 1.0, 1.0]),  # Strong white emission
+        emission=np.array([10.0, 10.0, 10.0]),
         reflect=np.array([0.0, 0.0, 0.0]),
         translated_vector=np.array([0, size / 2, 0]),
         rotation_axis=np.array([1, 0, 0]),
@@ -907,7 +889,7 @@ def main():
         size / 5 - light_size / 2,
         size / 5 + light_size / 2,
         light_division,
-        emission=np.array([2.0, 2.0, 2.0]),  # Strong white emission
+        emission=np.array([15.0, 15.0, 15.0]),
         reflect=np.array([0.0, 0.0, 0.0]),
         translated_vector=np.array([0, size / 2, 0]),
         rotation_axis=np.array([1, 0, 0]),
@@ -928,8 +910,8 @@ def main():
     print("Calculating form factors...")
     cube.update_form_factors()
 
-    print("Calculating light luminaces...")
-    cube.find_luminances(num_iterations=50)
+    print("Calculating light luminances...")
+    cube.color = cube.find_colors(num_iterations=100)
 
     # Initial preparation in case the drawing function is called
     cube.prepare()
