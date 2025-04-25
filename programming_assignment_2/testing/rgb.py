@@ -1,10 +1,58 @@
 import numpy as np
 
-# imports the function hermite(s,t,x,v)
-# this functions as per exercise 2 from assignment 7
-from hermite_util import hermite
 
-A = np.loadtxt("LMS.csv", delimiter=";")
+def closest(s, t):
+    # input: (ordered) list of (unique) time instances t
+    # point where function to be evaluated s
+    # output: index of sub interval
+
+    # Check if s is within the range of t
+    if s < t[0] or s > t[-1]:
+        return -1
+
+    # Find the index i such that t[i] <= s < t[i+1]
+    for i in range(len(t) - 1):
+        if t[i] <= s < t[i + 1]:
+            return i
+
+    return -1  # default value if no interval is found
+
+
+def hermite(s, t, x, v):
+    # import list of time steps t, list of positions x
+    # and list of speeds v
+    # returns x(s), v(s) by Hermite interpolation
+    i = closest(s, t)
+    if i == -1:
+        return 0, 0
+    else:
+        t0, t1 = t[i], t[i + 1]
+        x0, x1 = x[i], x[i + 1]
+        v0, v1 = v[i], v[i + 1]
+
+        # Normalize the parameter
+        h = t1 - t0
+        u = (s - t0) / h
+
+        # Cubic Hermite basis functions
+        h00 = 2 * u**3 - 3 * u**2 + 1
+        h10 = u**3 - 2 * u**2 + u
+        h01 = -2 * u**3 + 3 * u**2
+        h11 = u**3 - u**2
+
+        pos = h00 * x0 + h10 * h * v0 + h01 * x1 + h11 * h * v1
+
+        dh00 = (6 * u**2 - 6 * u) / h
+        dh10 = 3 * u**2 - 4 * u + 1
+        dh01 = (-6 * u**2 + 6 * u) / h
+        dh11 = 3 * u**2 - 2 * u
+
+        vel = dh00 * x0 + dh10 * v0 + dh01 * x1 + dh11 * v1
+
+        return pos, vel
+
+
+LMS_matrix = np.loadtxt("LMS.csv", delimiter=";")
 
 
 def hermite2(t, x):
@@ -32,9 +80,9 @@ def hermite2(t, x):
 
 # the functions L, M, S
 # normalized to max value 1
-gl = hermite2(A[:, 0], A[:, 1])
-gm = hermite2(A[:, 0], A[:, 2])
-gs = hermite2(A[:, 0], A[:, 3])
+gl = hermite2(LMS_matrix[:, 0], LMS_matrix[:, 1])
+gm = hermite2(LMS_matrix[:, 0], LMS_matrix[:, 2])
+gs = hermite2(LMS_matrix[:, 0], LMS_matrix[:, 3])
 
 
 # b)
@@ -72,28 +120,49 @@ def Spectrum_to_LMS(E):
     return results
 
 
-def R(x):
+def Red(x):
     return np.exp(-((x - 620) ** 2) / 1000) / np.sqrt(2000)
 
 
-def G(x):
+def Green(x):
     return np.exp(-((x - 510) ** 2) / 1000) / np.sqrt(2000)
 
 
-def B(x):
+def Blue(x):
     return np.exp(-((x - 460) ** 2) / 1000) / np.sqrt(2000)
 
     # A program to convert (R,G,B) to (L,M,S)
 
 
-R_LMS = Spectrum_to_LMS(R)  # integrate L2 against (gl, gm, gs)
-G_LMS = Spectrum_to_LMS(G)  # ... M2 ...
-B_LMS = Spectrum_to_LMS(B)  # ... S2 ...
+R_LMS = Spectrum_to_LMS(Red)  # integrate L2 against (gl, gm, gs)
+G_LMS = Spectrum_to_LMS(Green)  # ... M2 ...
+B_LMS = Spectrum_to_LMS(Blue)  # ... S2 ...
 
 # These can be assembled to give a matrix that converts from (R,G,B) to (L,M,S).
 
-B = np.column_stack((R_LMS, G_LMS, B_LMS))
+Colors = np.column_stack((R_LMS, G_LMS, B_LMS))
 
 # for interest (not tested!), the RGB value of spectral yellow
 # you should find that the B value is negative
-np.linalg.solve(B, LMS(580))
+np.linalg.solve(Colors, LMS(580))
+
+
+def LMS_to_RGB(luminances: np.ndarray):  # 5 points
+    # B is the matrix that converts RGB to LMS
+    # To convert from LMS to RGB, we need the inverse of B
+    B_inverse = np.linalg.inv(Colors)
+
+    # Convert LMS to RGB
+    rgb_linear = np.dot(B_inverse, luminances)
+
+    # Clip values to ensure they're within a valid range (0-1)
+    rgb_linear = np.clip(rgb_linear, 0, 1)
+
+    # From  https://www.cambridgeincolour.com/tutorials/gamma-correction.htm
+    # gammma = 1 / 2.2
+
+    # rgb_gamma_corrected = np.power(rgb_linear, gammma)
+
+    rgb_255 = (rgb_linear * 255).astype(int)
+
+    return rgb_255
