@@ -16,6 +16,8 @@ Debug:
 @Author Mathilde Borsodi Hegna
 """
 
+from contextlib import contextmanager
+from datetime import datetime
 from global_functions import (
     distance_point_to_plane,
     line_intersect_plane,
@@ -31,8 +33,8 @@ from quaternions import Quaternion
 from rgb_converting import LMS_to_RGB
 
 # Global variables
-g_window_width = 1920
-g_window_height = 1080
+g_window_width = 800
+g_window_height = 600
 g_window = Window(g_window_width, g_window_height)
 
 g_keys = key.KeyStateHandler()
@@ -106,16 +108,14 @@ class Light_model_3d:
         self.batch = Batch()
         # Changed from a dictionary to a list
         self.triangles = []
+        self.next_triangle_index = 0
         self.lines = []
-        self.position = np.array([0, 0, 200])
+        self.position = np.array([0, 0, 0])
         self.emit_array = emit
         self.reflect_array = reflect
         self.normal_array: np.ndarray = np.array([])
         self.area_array: np.ndarray = np.array([])
         self.form_factor_array: np.ndarray = np.array([])
-
-        self.active_triangle = []
-        self.triangle_status = np.zeros(0, dtype=bool)
 
     def prepare(self) -> None:
         """
@@ -125,16 +125,11 @@ class Light_model_3d:
         # Saving the old coordianates of vertices
         self.temporary_vertices = self.vertices.copy()
 
-        self.triangle_status[:] = False
-
-        for triangle in self.active_triangle:
+        # Dont show the triangles
+        for triangle in self.triangles:
             triangle.visible = False
-
-        # # Deleting the triangle objects in the list
-        # for triangle in self.triangles:
-        #     triangle.delete()
-        # # Reset the triangle list
-        # self.triangles.clear()
+        # Keep track of the next triangle
+        self.next_triangle_index = 0
 
         # Deleting the line objects in the list
         for line in self.lines:
@@ -142,7 +137,6 @@ class Light_model_3d:
         # Reset the line list
         self.lines.clear()
 
-    # FIX ALL ADD AND DELETE (for the new color)
     def add_vertex(self, vertex: np.ndarray) -> None:  # 5 points
         """
         Add a new vertex.
@@ -290,7 +284,6 @@ class Light_model_3d:
         :param vertex_2: The second vertex.
         :param vertex_3: The third vertex.
         """
-
         # Make sure the plane is normal
         plane_n = vector_normalize(plane_n)
 
@@ -426,14 +419,9 @@ class Light_model_3d:
         vertex2 *= scale
         vertex3 *= scale
 
-        # DET FUNKER IKKE
-        available_indices = np.where(~self.triangle_status)[0]
-
-        if len(available_indices) > 0:
-            index = available_indices[0]
-            self.triangle_status[index] = True
-            # if index <= len(self.active_triangle):
-            triangle = self.active_triangle[index]
+        # Reuse the triangles already drawn if possible
+        if self.next_triangle_index < len(self.triangles):
+            triangle = self.triangles[self.next_triangle_index]
             triangle.x = vertex1[0]
             triangle.y = vertex1[1]
             triangle.x2 = vertex2[0]
@@ -442,7 +430,9 @@ class Light_model_3d:
             triangle.y3 = vertex3[1]
             triangle.color = tuple(trigon.color)
             triangle.visible = True
+            self.next_triangle_index += 1
         else:
+            # If not, draw new ones
             triangle = Triangle(
                 vertex1[0],
                 vertex1[1],
@@ -453,22 +443,8 @@ class Light_model_3d:
                 color=tuple(trigon.color),
                 batch=self.batch,
             )
-            self.active_triangle.append(triangle)
-
-            self.triangle_status = np.append(self.triangle_status, True)
-
-        # # LEGGE TIL Å GJENBRUKE TRIANGLENE, finne de som er ledig og tegne, ellers tegn nye, hide før hver update.
-        # # Bulding the triangles shapes
-        # triangle = Triangle(
-        #     vertex1[0],
-        #     vertex1[1],
-        #     vertex2[0],
-        #     vertex2[1],
-        #     vertex3[0],
-        #     vertex3[1],
-        #     color=tuple(trigon.color),
-        #     batch=self.batch,
-        # )
+            self.triangles.append(triangle)
+            self.next_triangle_index += 1
 
         # Debugging helpers
         if self.wireframe:
@@ -481,8 +457,6 @@ class Light_model_3d:
             self.lines.append(
                 Line(vertex1[0], vertex1[1], vertex3[0], vertex3[1], batch=self.batch)
             )
-
-        self.triangles.append(triangle)
 
     def build_triangles(
         self, window_width: int, window_height: int
@@ -501,9 +475,9 @@ class Light_model_3d:
             triangle_array: np.ndarray = self.triangle_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
             # Make sure the vertices does not get the same coords/index
-            vertex1 = self.temporary_vertices[vertex1_index].copy()
-            vertex2 = self.temporary_vertices[vertex2_index].copy()
-            vertex3 = self.temporary_vertices[vertex3_index].copy()
+            vertex1 = self.temporary_vertices[vertex1_index]
+            vertex2 = self.temporary_vertices[vertex2_index]
+            vertex3 = self.temporary_vertices[vertex3_index]
 
             # Clipping the triangles
             trigons = self.triangle_clip_against_plane(
@@ -606,7 +580,10 @@ class Light_model_3d:
         )
 
     def update_geometry(self) -> None:  # 5 points
-        """Compute the normals and areas of each triangle in the plane."""
+        """
+        Compute the normals and areas of each triangle in the plane.
+        Used some from assignment 8
+        """
         num_triangles = len(self.triangle_indices)
 
         self.normal_array = np.zeros((num_triangles, 3))
@@ -614,12 +591,12 @@ class Light_model_3d:
 
         for i in range(num_triangles):
             # Get indices of the three vertices
-            idx_vertex = self.triangle_indices[i]
+            index_vertex = self.triangle_indices[i]
 
             # Get the vertices
-            vertex_1 = self.vertices[idx_vertex[0]]
-            vertex_2 = self.vertices[idx_vertex[1]]
-            vertex_3 = self.vertices[idx_vertex[2]]
+            vertex_1 = self.vertices[index_vertex[0]]
+            vertex_2 = self.vertices[index_vertex[1]]
+            vertex_3 = self.vertices[index_vertex[2]]
 
             vector_1 = vertex_2 - vertex_1
             vector_2 = vertex_3 - vertex_1
@@ -641,6 +618,7 @@ class Light_model_3d:
     def update_form_factors(self) -> None:  # 5 points
         """
         Compute the form factor matrix for all triangle pairs.
+        Used some from assignment 8
 
         Uses the formula:
             Fij = (1/Ai) * ∫∫ (cos(θi)cos(θj)/(π*r²)) dAidAj
@@ -655,8 +633,7 @@ class Light_model_3d:
                     self.form_factor_array[i, j] = 0.0
                     continue
 
-                # Get the coordinates of the nodes for elements i and j
-
+                # Get the coordinates of the vertices for elements i and j
                 centroid_i = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
                 centroid_j = np.mean(self.vertices[self.triangle_indices[j]], axis=0)
 
@@ -686,6 +663,7 @@ class Light_model_3d:
         """
         Compute the final luminance (radiosity) values for each triangle
         using an iterative radiosity method.
+        Used some from assignment 8.
 
         :param num_iterations: Number of iterations for the radiosity computation.
         :return: A array of RGB luminance values.
@@ -723,6 +701,7 @@ class Light_model_3d:
     def find_colors(self, num_iterations: int = 50) -> np.ndarray:  # 10 points
         """
         Convert computed luminance values into gamma-corrected RGB color values.
+        Used some from assignment 8
 
         :param num_iterations: Number of iterations for the radiosity calculation
         :return: Array of RGB colors for each triangle
@@ -761,6 +740,18 @@ class Light_model_3d:
         self.reflect_array = np.vstack((self.reflect_array, other.reflect_array))
 
 
+# Used for printing out how much time a function or code takes
+@contextmanager
+def measure_duration(text: str, is_active: bool):
+    if is_active:
+        start_time = datetime.now()
+        yield
+        duration = datetime.now() - start_time
+        print(f"{text} {duration}")
+    else:
+        yield
+
+
 def main() -> None:
     cube = Light_model_3d(
         vertices=np.empty((0, 3)),
@@ -769,8 +760,8 @@ def main() -> None:
         reflect=np.empty((0, 3)),
     )
 
-    cube_size = 150
-    cube_divisions = 7
+    cube_size = 100
+    cube_divisions = 10
 
     # Front wall
     front_wall = cube.model_rect(
@@ -798,7 +789,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.2, 0.3, 0.4]),
+        reflect=np.array([0.0, 0.5, 0.5]),
         translation_vector=np.array([0, 0, -cube_size / 2]),  # Back position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi,  # 180 degree rotation
@@ -815,7 +806,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.4, 0.2, 0.2]),
+        reflect=np.array([0.8, 0.5, 0.3]),
         translation_vector=np.array([cube_size / 2, 0, 0]),  # Right position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -848,7 +839,7 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.1, 0.6, 0.1]),
-        translation_vector=np.array([0, -cube_size / 2, 0]),  # Top position
+        translation_vector=np.array([0, -cube_size / 2, 0]),  # Bottom position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
         flip_normals=True,
@@ -865,7 +856,7 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.5, 0.1, 0.2]),
-        translation_vector=np.array([0, cube_size / 2, 0]),  # Bottom position
+        translation_vector=np.array([0, cube_size / 2, 0]),  # Top position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
         flip_normals=True,
@@ -882,7 +873,7 @@ def main() -> None:
         -cube_size / 5 - light_size / 2,
         -cube_size / 5 + light_size / 2,
         light_division,
-        emission=np.array([5.0, 1.0, 5.0]),
+        emission=np.array([10.0, 10.0, 10.0]),
         reflect=np.array([0.0, 0.0, 0.0]),
         translation_vector=np.array([0, cube_size / 2, 0]),
         rotation_axis=np.array([1, 0, 0]),
@@ -908,11 +899,26 @@ def main() -> None:
     print("Update geometry...")
     cube.update_geometry()
 
-    print("Calculating form factors...")
-    cube.update_form_factors()
+    with measure_duration("Form factor duration: ", True):
+        print("Calculating form factors...")
+        cube.update_form_factors()
 
-    print("Calculating light luminances...")
-    cube.colors = cube.find_colors(num_iterations=50)
+    with measure_duration("Color duration: ", True):
+        print("Calculating light luminances...")
+        cube.colors = cube.find_colors(num_iterations=10)
+
+    show_duration = False
+    show_triangle_count = False
+    if show_triangle_count:
+        triangle_count_label = pyglet.text.Label(
+            "",
+            font_name="Times New Roman",
+            font_size=36,
+            x=g_window_width // 2,
+            y=g_window_height // 2,
+            anchor_x="center",
+            anchor_y="center",
+        )
 
     # Initial preparation in case the drawing function is called
     cube.prepare()
@@ -922,6 +928,9 @@ def main() -> None:
     def on_draw() -> None:
         g_window.clear()
         cube.batch.draw()
+
+        if show_triangle_count:
+            triangle_count_label.draw()
 
     def update(dt: float) -> None:
         speed = 100 * dt
@@ -972,19 +981,25 @@ def main() -> None:
         if g_keys[key.F4]:
             cube.fov -= 5 * dt
 
-        # Prepare for a new transformation
-        cube.prepare()
+        with measure_duration("Prepare duration: ", show_duration):
+            # Prepare for a new transformation
+            cube.prepare()
 
-        # Rotate all the quaternions
-        cube.rotate(qx * qy * qz)
+        with measure_duration("Rotate duration: ", show_duration):
+            # Rotate all the quaternions
+            cube.rotate(qx * qy * qz)
 
-        # Translate the relative postition
-        cube.translate(cube.position)
+        with measure_duration("Translate duration: ", show_duration):
+            # Translate the relative postition
+            cube.translate(cube.position)
 
-        # Building the needed triangles to the screen
-        cube.build_triangles(
-            window_width=g_window_height, window_height=g_window_height
-        )
+        with measure_duration("Build triangles duration: ", show_duration):
+            # Building the needed triangles to the screen
+            cube.build_triangles(
+                window_width=g_window_width, window_height=g_window_height
+            )
+        if show_triangle_count:
+            triangle_count_label.text = f"Triangle Count: {cube.next_triangle_index}"
 
     def on_key_press(symbol, modifiers) -> None:  # 10 points
         # Turn on wireframe (show all triangles of the cube)
