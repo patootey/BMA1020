@@ -13,7 +13,7 @@ Debug:
     To activate debug clipping: F2
     To change FOV: F3 & F4
 
-Author: Mathilde Borsodi Hegna
+@Author Mathilde Borsodi Hegna
 """
 
 from global_functions import (
@@ -21,7 +21,6 @@ from global_functions import (
     line_intersect_plane,
     Trigon,
     vector_normalize,
-    LMS_to_RGB,
 )
 import numpy as np
 import pyglet
@@ -29,6 +28,7 @@ from pyglet.graphics import Batch
 from pyglet.window import key, Window
 from pyglet.shapes import Line, Triangle
 from quaternions import Quaternion
+from rgb_converting import LMS_to_RGB
 
 # Global variables
 g_window_width = 1920
@@ -38,12 +38,6 @@ g_window = Window(g_window_width, g_window_height)
 g_keys = key.KeyStateHandler()
 g_window.push_handlers(g_keys)
 
-RED = [255, 0, 0]
-GREEN = [0, 255, 0]
-BLUE = [0, 0, 255]
-MAGENTA = [255, 0, 255]
-YELLOW = [255, 255, 0]
-CYAN = [0, 255, 255]
 FRAME_TIME: float = 1 / 60
 
 # Debug colors
@@ -52,80 +46,7 @@ WHITE = [255, 255, 255]
 GREY = [200, 200, 200]
 
 
-# Defines the vertices of a cube
-g_vertices = 100 * np.transpose(
-    np.array(
-        [
-            [-1, 1, -1, 1, -1, 1, -1, 1],
-            [-1, -1, 1, 1, -1, -1, 1, 1],
-            [-1, -1, -1, -1, 1, 1, 1, 1],
-        ]
-    )
-)
-
-# Defines the triangles of a cube
-g_triangle_indices = np.array(
-    [
-        [0, 1, 2],
-        [1, 2, 3],
-        [0, 1, 5],
-        [0, 4, 5],
-        [1, 5, 7],
-        [1, 3, 7],
-        [0, 2, 6],
-        [0, 4, 6],
-        [4, 5, 7],
-        [4, 6, 7],
-        [2, 3, 7],
-        [2, 6, 7],
-    ]
-)
-
-# Defines the colors of the cube triangles
-g_colors = np.array(
-    [RED, RED, GREEN, GREEN, BLUE, BLUE, MAGENTA, MAGENTA, YELLOW, YELLOW, CYAN, CYAN],
-    dtype=np.uint32,
-)
-
-# FIKK AV CHAT, bare for å teste
-g_emit = np.array(
-    [
-        [0.2, 0.1, 0.0],  # Face 1 - slight reddish emission
-        [0.2, 0.1, 0.0],  # Face 2
-        [0.1, 0.2, 0.0],  # Face 3 - slight greenish emission
-        [0.1, 0.2, 0.0],  # Face 4
-        [0.0, 0.1, 0.2],  # Face 5 - slight bluish emission
-        [0.0, 0.1, 0.2],  # Face 6
-        [0.1, 0.0, 0.1],  # Face 7 - slight magenta emission
-        [0.1, 0.0, 0.1],  # Face 8
-        [0.1, 0.1, 0.0],  # Face 9 - slight yellow emission
-        [0.1, 0.1, 0.0],  # Face 10
-        [0.0, 0.1, 0.1],  # Face 11 - slight cyan emission
-        [0.0, 0.1, 0.1],  # Face 12
-    ],
-    dtype=np.float32,
-)
-# Define reflection values in LMS space for each triangle face
-g_reflect = np.array(
-    [
-        [0.8, 0.2, 0.2],  # Face 1 - mostly reflects red
-        [0.8, 0.2, 0.2],  # Face 2
-        [0.2, 0.8, 0.2],  # Face 3 - mostly reflects green
-        [0.2, 0.8, 0.2],  # Face 4
-        [0.2, 0.2, 0.8],  # Face 5 - mostly reflects blue
-        [0.2, 0.2, 0.8],  # Face 6
-        [0.8, 0.2, 0.8],  # Face 7 - reflects red and blue (magenta)
-        [0.8, 0.2, 0.8],  # Face 8
-        [0.8, 0.8, 0.2],  # Face 9 - reflects red and green (yellow)
-        [0.8, 0.8, 0.2],  # Face 10
-        [0.2, 0.8, 0.8],  # Face 11 - reflects green and blue (cyan)
-        [0.2, 0.8, 0.8],  # Face 12
-    ],
-    dtype=np.float32,
-)
-
-
-class Light_Model_3d:
+class Light_model_3d:
     vertices: np.ndarray
     "Array of vertex arrays"
     temporary_vertices: np.ndarray
@@ -134,7 +55,7 @@ class Light_Model_3d:
     "Array of triangle arrays"
     colors: np.ndarray
     "Array of color arrays"
-    fov: float = 50
+    fov: float = 100
     "Field of view"
     far: float = 1000
     "Far plane for camera"
@@ -158,45 +79,43 @@ class Light_Model_3d:
     "The rotation angle of the cube around the Z-axis"
     position: np.ndarray
     "The position of the cube"
-    emit: np.ndarray
+    emit_array: np.ndarray
     "Array of emission values for triangles"
-    reflect: np.ndarray
+    reflect_array: np.ndarray
     "Array of reflection values for triangles"
+    normal_array: np.ndarray
+    "Array of all triangle normals"
+    area_array: np.ndarray
+    "Array of all areas"
+    form_factor_array: np.ndarray
+    "Array of all form factors"
 
-    # CHANGE OUT THE COLOR WITH EMIT AND REFLECT
     def __init__(
         self,
         vertices: np.ndarray,
         triangle_indices: np.ndarray,
-        colors: np.ndarray,
         emit: np.ndarray,
         reflect: np.ndarray,
     ) -> None:
-        """
-        Class that contains a 3D model that can be rotated, translated and projected.
-        They can then be drawn to the screen using pyglet library.
-
-        :param vertices: This is the vertices of the model.
-        :param triangle_indices: This is the triangles of the model, referencing vertices.
-        :param colors: This is the colors for the triangles, same size as triangle_indices.
-        :param emit: Emission values for triangles, same size as triangle_indices.
-        :param reflect: Reflection values for triangles, same size as triangle_indices.
-        """
         # Previous named: nodes
         self.vertices = vertices
         self.temporary_vertices = np.array([])
         # Previous named: elements
         self.triangle_indices = triangle_indices
-        self.colors = colors
+        self.colors = np.zeros((len(triangle_indices), 3), dtype=np.int32)
         self.batch = Batch()
         # Changed from a dictionary to a list
         self.triangles = []
         self.lines = []
         self.position = np.array([0, 0, 200])
+        self.emit_array = emit
+        self.reflect_array = reflect
+        self.normal_array: np.ndarray = np.array([])
+        self.area_array: np.ndarray = np.array([])
+        self.form_factor_array: np.ndarray = np.array([])
 
-        # THE NEW
-        self.emit = emit
-        self.reflect = reflect
+        self.active_triangle = []
+        self.triangle_status = np.zeros(0, dtype=bool)
 
     def prepare(self) -> None:
         """
@@ -206,11 +125,16 @@ class Light_Model_3d:
         # Saving the old coordianates of vertices
         self.temporary_vertices = self.vertices.copy()
 
-        # Deleting the triangle objects in the list
-        for triangle in self.triangles:
-            triangle.delete()
-        # Reset the triangle list
-        self.triangles.clear()
+        self.triangle_status[:] = False
+
+        for triangle in self.active_triangle:
+            triangle.visible = False
+
+        # # Deleting the triangle objects in the list
+        # for triangle in self.triangles:
+        #     triangle.delete()
+        # # Reset the triangle list
+        # self.triangles.clear()
 
         # Deleting the line objects in the list
         for line in self.lines:
@@ -261,24 +185,21 @@ class Light_Model_3d:
     def add_triangle(
         self,
         triangle: np.ndarray,
-        color: np.ndarray,
         emit: np.ndarray,
         reflect: np.ndarray,
     ) -> None:  # 5 points
         """
-        Add triangle with a color.
+        Add triangle with a emit and reflect value.
 
         :param triangle: Index of vertices of the triangle.
-        :param color: Color of the triangle.
+        :param emit: Emit value of the triangle.
+        :param reflect: Reflect value of the triangle.
         """
         # Previously named: add_element
         # And removed back parameter
         self.triangle_indices = np.vstack((self.triangle_indices, np.array([triangle])))
-        self.colors = np.vstack((self.colors, np.array([color])))
-
-        # NEW
-        self.emit = np.vstack((self.emit, np.array([emit])))
-        self.reflect = np.vstack((self.reflect, np.array([reflect])))
+        self.emit_array = np.vstack((self.emit_array, np.array([emit])))
+        self.reflect_array = np.vstack((self.reflect_array, np.array([reflect])))
 
     def delete_triangle(self, index: int) -> None:  # 5 points
         """
@@ -288,10 +209,8 @@ class Light_Model_3d:
         """
         # Previously named: delete_element
         self.triangle_indices = np.delete(self.triangle_indices, index, axis=0)
-        self.colors = np.delete(self.colors, index, axis=0)
-
-        self.emit = np.delete(self.emit, index, axis=0)
-        self.reflect = np.delete(self.reflect, index, axis=0)
+        self.emit_array = np.delete(self.emit_array, index, axis=0)
+        self.reflect_array = np.delete(self.reflect_array, index, axis=0)
 
     def rotate(self, quaternion: Quaternion) -> None:
         """
@@ -507,34 +426,49 @@ class Light_Model_3d:
         vertex2 *= scale
         vertex3 *= scale
 
-        if trigon.index >= 0:
-            lms_emission = self.emit[trigon.index]
-            lms_reflection = self.reflect[trigon.index]
+        # DET FUNKER IKKE
+        available_indices = np.where(~self.triangle_status)[0]
 
-            # bare for test
-            ambient_light = np.array([1, 0.5, 0.5])
-
-            final_lms = lms_emission + (lms_reflection * ambient_light)
-
-            final_lms = np.clip(final_lms, 0, 1)
-
-            rgb_color = LMS_to_RGB(final_lms)
-
-            display_color = (rgb_color * 255).astype(np.uint8)
+        if len(available_indices) > 0:
+            index = available_indices[0]
+            self.triangle_status[index] = True
+            # if index <= len(self.active_triangle):
+            triangle = self.active_triangle[index]
+            triangle.x = vertex1[0]
+            triangle.y = vertex1[1]
+            triangle.x2 = vertex2[0]
+            triangle.y2 = vertex2[1]
+            triangle.x3 = vertex3[0]
+            triangle.y3 = vertex3[1]
+            triangle.color = tuple(trigon.color)
+            triangle.visible = True
         else:
-            display_color = trigon.color
+            triangle = Triangle(
+                vertex1[0],
+                vertex1[1],
+                vertex2[0],
+                vertex2[1],
+                vertex3[0],
+                vertex3[1],
+                color=tuple(trigon.color),
+                batch=self.batch,
+            )
+            self.active_triangle.append(triangle)
 
-        # Bulding the triangles shapes
-        triangle = Triangle(
-            vertex1[0],
-            vertex1[1],
-            vertex2[0],
-            vertex2[1],
-            vertex3[0],
-            vertex3[1],
-            color=tuple(display_color),
-            batch=self.batch,
-        )
+            self.triangle_status = np.append(self.triangle_status, True)
+
+        # # LEGGE TIL Å GJENBRUKE TRIANGLENE, finne de som er ledig og tegne, ellers tegn nye, hide før hver update.
+        # # Bulding the triangles shapes
+        # triangle = Triangle(
+        #     vertex1[0],
+        #     vertex1[1],
+        #     vertex2[0],
+        #     vertex2[1],
+        #     vertex3[0],
+        #     vertex3[1],
+        #     color=tuple(trigon.color),
+        #     batch=self.batch,
+        # )
 
         # Debugging helpers
         if self.wireframe:
@@ -561,13 +495,12 @@ class Light_Model_3d:
         :param window_height: Window heigth.
         """
         # Originally named: draw
-        # Draw the model to the screen
         # Rebuild the triangles for each edge
         for triangle_index in range(len(self.triangle_indices)):
             color = self.colors[triangle_index]
             triangle_array: np.ndarray = self.triangle_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
-            # Make sure the vertices does not get the same coords/index? noe i den duren?
+            # Make sure the vertices does not get the same coords/index
             vertex1 = self.temporary_vertices[vertex1_index].copy()
             vertex2 = self.temporary_vertices[vertex2_index].copy()
             vertex3 = self.temporary_vertices[vertex3_index].copy()
@@ -581,24 +514,407 @@ class Light_Model_3d:
             for trigon in trigons:
                 if len(trigon.color) == 0:
                     trigon.color = color
-
                 trigon.index = triangle_index
-
                 self.build_triangle(trigon, window_width, window_height)
 
+    @classmethod  # 10 points
+    def model_rect(
+        cls,
+        x_min: float,
+        x_max: float,
+        x_divisions: int,
+        y_min: float,
+        y_max: float,
+        y_divisions: int,
+        emission: np.ndarray = np.array([0, 0, 0]),
+        reflect: np.ndarray = np.array([0.5, 0.5, 0.5]),
+        translation_vector: np.ndarray = np.array([0, 0, 0]),
+        rotation_axis: np.ndarray = np.array([0, 0, 1]),
+        rotation_angle: float = 0,
+        flip_normals: bool = False,
+    ) -> "Light_model_3d":
+        """
+        Create a rectangular grid model in the plane and apply tranformations.
 
-def main():
-    cube = Light_Model_3d(g_vertices, g_triangle_indices, g_colors, g_emit, g_reflect)
+        :param x_min:  Minimum X coordinate.
+        :param x_max:  Maximum X coordinate.
+        :param x_divisions: Number of divisions along X-axis.
+        :param y_min:  Minimum y coordinate.
+        :param y_max:  Maximum y coordinate.
+        :param y_divisions: Number of divisions along Y-axis.
+        :param emission: Emission for each triangle.
+        :param reflect: Reflectance for each triangle.
+        :param translation_vector: 3D translation vector.
+        :param rotation_axis: Axis around which to rotate the model.
+        :param rotation_angle: Angle to rotate (in radians).
+        :param flip_normals: If True, flip the normals direction.
+        :return: A new instance of Light_model_3d representing the model.
+        """
 
-    # Example for deleting
-    # cube.delete_vertex(0)
-    # cube.delete_triangle(0)
+        x_coords = np.linspace(x_min, x_max, x_divisions)
+        y_coords = np.linspace(y_min, y_max, y_divisions)
+        grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+        flat_xy = np.transpose(
+            np.vstack(
+                (
+                    grid_x.reshape(y_divisions * x_divisions),
+                    grid_y.reshape(y_divisions * x_divisions),
+                )
+            )
+        )
+        z_values = np.zeros((x_divisions * y_divisions, 1))
+        vertices = np.hstack((flat_xy, z_values))
 
-    # Example of adding
-    # cube.add_vertex(np.array([200, -200, 200]))
-    # cube.add_triangle(np.array([8, 7, 6]), np.array(RED)), np.array([0.2, 0.2, 0.2]), np.array([0.8, 0.8, 0.8]))
+        # Create triangles by connecting grid points
+        triangle_indices = []
 
-    # Initial preperation incase the drawing function is called
+        for row in range(y_divisions - 1):
+            for col in range(x_divisions - 1):
+                # The grid is laid out row by row
+                top_left = row * x_divisions + col
+                top_right = top_left + 1
+                bottom_left = (row + 1) * x_divisions + col
+                bottom_right = bottom_left + 1
+
+                if not flip_normals:
+                    # Clockwise
+                    triangle_indices.append([top_left, top_right, bottom_left])
+                    triangle_indices.append([bottom_left, top_right, bottom_right])
+                else:
+                    # Flipped counter-clockwise
+                    triangle_indices.append([bottom_left, top_right, top_left])
+                    triangle_indices.append([bottom_right, top_right, bottom_left])
+
+        triangle_indices = np.array(triangle_indices)
+
+        quaternion_rotation = Quaternion.from_rotation(
+            np.array(rotation_axis), rotation_angle
+        )
+
+        # Apply rotation
+        rotated_vertices = quaternion_rotation.rotate_vectors(vertices)
+
+        # Apply translation
+        translated_vertices = rotated_vertices + np.array(translation_vector)
+
+        # Create arrays for emission and reflection values for each triangle
+        emit_array = np.array([emission for _ in range(len(triangle_indices))])
+        reflect_array = np.array([reflect for _ in range(len(triangle_indices))])
+
+        return Light_model_3d(
+            translated_vertices, triangle_indices, emit_array, reflect_array
+        )
+
+    def update_geometry(self) -> None:  # 5 points
+        """Compute the normals and areas of each triangle in the plane."""
+        num_triangles = len(self.triangle_indices)
+
+        self.normal_array = np.zeros((num_triangles, 3))
+        self.area_array = np.zeros(num_triangles)
+
+        for i in range(num_triangles):
+            # Get indices of the three vertices
+            idx_vertex = self.triangle_indices[i]
+
+            # Get the vertices
+            vertex_1 = self.vertices[idx_vertex[0]]
+            vertex_2 = self.vertices[idx_vertex[1]]
+            vertex_3 = self.vertices[idx_vertex[2]]
+
+            vector_1 = vertex_2 - vertex_1
+            vector_2 = vertex_3 - vertex_1
+
+            # Calculate normal using cross product
+            normal = np.cross(vector_1, vector_2)
+
+            # Normalize the normal vector
+            normalize = np.linalg.norm(normal)
+            if normalize > 0:
+                normal = normal / normalize
+
+            area = normalize / 2
+
+            # Store results
+            self.normal_array[i] = normal
+            self.area_array[i] = area
+
+    def update_form_factors(self) -> None:  # 5 points
+        """
+        Compute the form factor matrix for all triangle pairs.
+
+        Uses the formula:
+            Fij = (1/Ai) * ∫∫ (cos(θi)cos(θj)/(π*r²)) dAidAj
+        """
+        num_triangles = len(self.triangle_indices)
+        self.form_factor_array = np.zeros((num_triangles, num_triangles))
+
+        for i in range(num_triangles):
+            for j in range(num_triangles):
+                if i == j:
+                    # No self-illumination
+                    self.form_factor_array[i, j] = 0.0
+                    continue
+
+                # Get the coordinates of the nodes for elements i and j
+
+                centroid_i = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
+                centroid_j = np.mean(self.vertices[self.triangle_indices[j]], axis=0)
+
+                # Vector from i to j
+                r_vector = centroid_j - centroid_i
+                r_normalize = np.linalg.norm(r_vector)
+
+                if r_normalize == 0:
+                    self.form_factor_array[i, j] = 0.0
+                    continue
+
+                # Unit direction vector
+                r_unit = r_vector / r_normalize
+
+                dot_ni = np.dot(r_unit, self.normal_array[i])
+                dot_nj = np.dot(-r_unit, self.normal_array[j])
+
+                if dot_ni <= 0 or dot_nj <= 0:
+                    self.form_factor_array[i, j] = 0.0
+                    continue
+
+                F_ij = self.area_array[j] * (dot_ni * dot_nj) / (np.pi * r_normalize**2)
+
+                self.form_factor_array[i, j] = F_ij
+
+    def find_luminances(self, num_iterations: int = 50) -> np.ndarray:
+        """
+        Compute the final luminance (radiosity) values for each triangle
+        using an iterative radiosity method.
+
+        :param num_iterations: Number of iterations for the radiosity computation.
+        :return: A array of RGB luminance values.
+        """
+
+        num_triangles = len(self.triangle_indices)
+
+        # Initialize radiosity with just emission (no ambient light)
+        radiosity_array = self.emit_array.copy()
+
+        # Store a copy of the initial emission for convergence
+        initial_emission_array = self.emit_array.copy()
+
+        for _ in range(num_iterations):
+            prev_radiosity = radiosity_array.copy()
+            for i in range(num_triangles):
+                # Start with direct emission only (no ambient term)
+                radiosity_array[i] = initial_emission_array[i].copy()
+
+                # Add reflected component from all other surfaces
+                for j in range(num_triangles):
+                    if i == j:
+                        continue
+                    # Light that bounces from surface j to surface i
+                    radiosity_array[i] += (
+                        self.reflect_array[i]
+                        * self.form_factor_array[i, j]
+                        * prev_radiosity[j]
+                    )
+
+        # Store and return results
+        self.luminances = np.clip(radiosity_array, 0, 1)
+        return self.luminances
+
+    def find_colors(self, num_iterations: int = 50) -> np.ndarray:  # 10 points
+        """
+        Convert computed luminance values into gamma-corrected RGB color values.
+
+        :param num_iterations: Number of iterations for the radiosity calculation
+        :return: Array of RGB colors for each triangle
+        """
+        # Calculate LMS luminances
+        lms_luminances = self.find_luminances(num_iterations)
+
+        # Initialize RGB colors array
+        num_triangles = len(self.triangle_indices)
+        rgb_colors = np.zeros((num_triangles, 3), dtype=np.int32)
+
+        # Convert LMS to RGB for each triangle
+        for index in range(num_triangles):
+            rgb_colors[index] = LMS_to_RGB(lms_luminances[index])
+
+        return rgb_colors
+
+    def add_model(self, other: "Light_model_3d") -> None:  # 10 points
+        """
+        Merge another Light_model_3d instance into the current model.
+
+        :param other: Another Light_model_3d instance to merge with this one.
+        """
+        # Store the current number of vertices to offset the indices from the other model
+        vertex_offset = len(self.vertices)
+
+        # Append vertices
+        self.vertices = np.vstack((self.vertices, other.vertices))
+
+        # Offset triangle indices and append
+        offset_indices = other.triangle_indices + vertex_offset
+        self.triangle_indices = np.vstack((self.triangle_indices, offset_indices))
+
+        # Append emit and reflect values
+        self.emit_array = np.vstack((self.emit_array, other.emit_array))
+        self.reflect_array = np.vstack((self.reflect_array, other.reflect_array))
+
+
+def main() -> None:
+    cube = Light_model_3d(
+        vertices=np.empty((0, 3)),
+        triangle_indices=np.empty((0, 3), dtype=int),
+        emit=np.empty((0, 3)),
+        reflect=np.empty((0, 3)),
+    )
+
+    cube_size = 150
+    cube_divisions = 7
+
+    # Front wall
+    front_wall = cube.model_rect(
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.5, 0.1, 0.7]),
+        translation_vector=np.array([0, 0, cube_size / 2]),  # Front position
+        rotation_axis=np.array([0, 0, 1]),
+        rotation_angle=0,
+        flip_normals=True,
+    )
+    cube.add_model(front_wall)
+
+    # Back wall
+    back_wall = cube.model_rect(
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.2, 0.3, 0.4]),
+        translation_vector=np.array([0, 0, -cube_size / 2]),  # Back position
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=np.pi,  # 180 degree rotation
+        flip_normals=True,
+    )
+    cube.add_model(back_wall)
+
+    # Right wall
+    right_wall = cube.model_rect(
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.4, 0.2, 0.2]),
+        translation_vector=np.array([cube_size / 2, 0, 0]),  # Right position
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=-np.pi / 2,  # -90 degree rotation
+    )
+    cube.add_model(right_wall)
+
+    # Left wall
+    left_wall = cube.model_rect(
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.1, 0.3, 0.5]),
+        translation_vector=np.array([-cube_size / 2, 0, 0]),  # Left position
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=np.pi / 2,  # 90 degree rotation
+    )
+    cube.add_model(left_wall)
+
+    # Bottom wall
+    bottom_wall = cube.model_rect(
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.1, 0.6, 0.1]),
+        translation_vector=np.array([0, -cube_size / 2, 0]),  # Top position
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=np.pi / 2,  # 90 degree rotation
+        flip_normals=True,
+    )
+    cube.add_model(bottom_wall)
+
+    # Top wall
+    top_wall = cube.model_rect(
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        -cube_size / 2,
+        cube_size / 2,
+        cube_divisions,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=np.array([0.5, 0.1, 0.2]),
+        translation_vector=np.array([0, cube_size / 2, 0]),  # Bottom position
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=-np.pi / 2,  # -90 degree rotation
+        flip_normals=True,
+    )
+    cube.add_model(top_wall)
+
+    light_size = 30
+    light_division = 2
+
+    light_1 = cube.model_rect(
+        -cube_size / 5 - light_size / 2,
+        -cube_size / 5 + light_size / 2,
+        light_division,
+        -cube_size / 5 - light_size / 2,
+        -cube_size / 5 + light_size / 2,
+        light_division,
+        emission=np.array([5.0, 1.0, 5.0]),
+        reflect=np.array([0.0, 0.0, 0.0]),
+        translation_vector=np.array([0, cube_size / 2, 0]),
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=np.pi / 2,
+    )
+    cube.add_model(light_1)
+
+    light_2 = cube.model_rect(
+        cube_size / 5 - light_size / 2,
+        cube_size / 5 + light_size / 2,
+        light_division,
+        cube_size / 5 - light_size / 2,
+        cube_size / 5 + light_size / 2,
+        light_division,
+        emission=np.array([15.0, 15.0, 15.0]),
+        reflect=np.array([0.0, 0.0, 0.0]),
+        translation_vector=np.array([0, cube_size / 2, 0]),
+        rotation_axis=np.array([1, 0, 0]),
+        rotation_angle=np.pi / 2,
+    )
+    cube.add_model(light_2)
+
+    print("Update geometry...")
+    cube.update_geometry()
+
+    print("Calculating form factors...")
+    cube.update_form_factors()
+
+    print("Calculating light luminances...")
+    cube.colors = cube.find_colors(num_iterations=50)
+
+    # Initial preparation in case the drawing function is called
     cube.prepare()
 
     # Draw to the screen
@@ -607,7 +923,7 @@ def main():
         g_window.clear()
         cube.batch.draw()
 
-    def update(dt) -> None:
+    def update(dt: float) -> None:
         speed = 100 * dt
         rotation_speed = 1.0 * dt
 
@@ -670,7 +986,7 @@ def main():
             window_width=g_window_height, window_height=g_window_height
         )
 
-    def on_key_press(symbol, modifiers):  # 10 points
+    def on_key_press(symbol, modifiers) -> None:  # 10 points
         # Turn on wireframe (show all triangles of the cube)
         if symbol == key.F1:
             cube.wireframe = not cube.wireframe
