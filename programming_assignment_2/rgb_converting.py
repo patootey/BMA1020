@@ -1,5 +1,6 @@
 """
 This code uses hermite interpolation to convert RGB to LMS and viseversa.
+Got from assignment 8.
 
 @Author Mathilde Borsodi Hegna
 """
@@ -15,7 +16,7 @@ def closest(target_time, time_points):
     :param time_pints: Ordered list of unique time points.
     :return: Index of the interval or -1 if target_time is out of bounds.
     """
-    # Check if s is within the range of time
+    # Check if target_time is within the range of time
     if target_time < time_points[0] or target_time > time_points[-1]:
         return -1
 
@@ -72,7 +73,7 @@ def hermite_interpolation(target_time, time, pos, speed):
         return position, velocity
 
 
-lms_values = np.loadtxt("programming_assignment_2/LMS.csv", delimiter=";")
+lms_values = np.loadtxt("LMS.csv", delimiter=";")
 
 
 def create_hermite_interpolation(time_points, position_values):
@@ -203,7 +204,7 @@ def LMS_to_RGB(luminances: np.ndarray):  # 5 points
     Convert LMS color values to gamma-corrected RGB values.
 
     :param luminances: Array [L, M, S] of luminance values.
-    :return: Array [R, G, B] as 8-bit integers (0–255).
+    :return: Array [R, G, B]
     """
     # convert_matrix is the matrix that converts RGB to LMS
     # To convert from LMS to RGB, we need the inverse of convert_matrix
