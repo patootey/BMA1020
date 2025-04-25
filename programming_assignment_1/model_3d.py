@@ -30,7 +30,7 @@ from pyglet.shapes import Line, Triangle
 from quaternions import Quaternion
 
 # Global variables
-g_window_width = 1920 // 4
+g_window_width = 1920
 g_window_height = 1080
 g_window = Window(g_window_width, g_window_height)
 
