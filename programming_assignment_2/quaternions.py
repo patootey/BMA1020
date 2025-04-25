@@ -95,10 +95,11 @@ class Quaternion:
         if vectors.shape[1] != 3:
             raise ValueError("Each column should be a 3D vector")
 
+        inverse = self.inverse()
         rotated_vectors = []
         for i in range(len(vectors)):
             q_vector = Quaternion(0, vectors[i])
-            rotated_q_vector = self * q_vector * self.inverse()
+            rotated_q_vector = self * q_vector * inverse
             rotated_vectors.append(rotated_q_vector.vector)
 
         return np.array(rotated_vectors)
