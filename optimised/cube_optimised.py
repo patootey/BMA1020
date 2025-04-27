@@ -16,11 +16,15 @@ Debug:
 Author: Mathilde Borsodi Hegna
 """
 
+from contextlib import contextmanager
+from datetime import datetime
+
 from general_optimised import (
     distance_point_to_plane,
     line_intersect_plane,
-    Trigon,
+    # Trigon,
     vector_normalize,
+    array_distance_point_to_plane,
 )
 import numpy as np
 import pyglet
@@ -140,6 +144,7 @@ class Model_3d:
         self.triangles = []
         self.lines = []
         self.position = np.array([0, 0, 200])
+        self.next_triangle_index = 0
 
     def prepare(self) -> None:
         """
@@ -149,11 +154,16 @@ class Model_3d:
         # Saving the old coordianates of vertices
         self.temporary_vertices = self.vertices.copy()
 
-        # Deleting the triangle objects in the list
+        # # Deleting the triangle objects in the list
+        # for triangle in self.triangles:
+        #     triangle.delete()
+        # # Reset the triangle list
+        # self.triangles.clear()
+
         for triangle in self.triangles:
-            triangle.delete()
-        # Reset the triangle list
-        self.triangles.clear()
+            triangle.visible = False
+        # Keep track of the next triangle
+        self.next_triangle_index = 0
 
         # Deleting the line objects in the list
         for line in self.lines:
@@ -224,6 +234,14 @@ class Model_3d:
         """
         self.temporary_vertices = quaternion.rotate_vectors(self.temporary_vertices)
 
+    def rotate2(self, quaternion: Quaternion) -> None:
+        """
+        Rotate all the vertices by a quaternion.
+
+        :param quaternion: Quaternion object
+        """
+        quaternion.rotate_vectors2(self.temporary_vertices)
+
     def translate(self, vector: np.ndarray) -> None:
         """
         Translating all vertices by the vector.
@@ -238,8 +256,45 @@ class Model_3d:
         for i in range(len(self.temporary_vertices)):
             self.temporary_vertices[i] = self.temporary_vertices[i] + vector
 
-    def project(
-        self, vertex: np.ndarray, window_width: int, window_height: int
+    # def project(
+    #     self, vertex: np.ndarray, window_width: int, window_height: int
+    # ) -> np.ndarray:
+    #     """
+    #     Project the vertex onto the camera plane and returns it.
+
+    #     :param vertex: The vertex to project.
+    #     :param window_width: Window width.
+    #     :param window_heigth: Window heigth.
+    #     :return: Transformed vertex.
+    #     """
+    #     # This type of projection I got from watching Youtube videos about 3D projecting and clipping
+    #     aspectratio = window_height / window_width
+    #     # Inverse tan based on FOV
+    #     f_rad = 1 / np.tan(np.radians(self.fov) / 2)
+    #     q = (self.far) / (self.far - self.near)
+    #     # homogeneous coordinates
+    #     org_x, org_y, org_z = vertex
+    #     org_w = 1
+
+    #     # Normalize to viewing volume
+    #     new_x = aspectratio * f_rad * org_x
+    #     new_y = f_rad * org_y
+    #     new_z = q * org_z + (-self.near * q) * org_w
+    #     new_w = org_w * org_z
+
+    #     # Perspective transformation
+    #     # Due to normalization and clipping, we know it will never divide by 0
+    #     new_x = new_x / new_w
+    #     new_y = new_y / new_w
+    #     new_z = new_z / new_w
+    #     # New_w disappears due to division by itself
+    #     new_w = new_w / new_w
+
+    #     projected_vertex = np.array([new_x, new_y, new_z])
+    #     return projected_vertex
+
+    def array_project(
+        self, vertices: np.ndarray, window_width: int, window_height: int
     ) -> np.ndarray:
         """
         Project the vertex onto the camera plane and returns it.
@@ -254,26 +309,97 @@ class Model_3d:
         # Inverse tan based on FOV
         f_rad = 1 / np.tan(np.radians(self.fov) / 2)
         q = (self.far) / (self.far - self.near)
-        # homogeneous coordinates
-        org_x, org_y, org_z = vertex
-        org_w = 1
 
-        # Normalize to viewing volume
-        new_x = aspectratio * f_rad * org_x
-        new_y = f_rad * org_y
-        new_z = q * org_z + (-self.near * q) * org_w
-        new_w = org_w * org_z
+        w_array = np.full(len(vertices), 1)[:, np.newaxis]
 
-        # Perspective transformation
-        # Due to normalization and clipping, we know it will never divide by 0
-        new_x = new_x / new_w
-        new_y = new_y / new_w
-        new_z = new_z / new_w
-        # New_w disappears due to division by itself
-        new_w = new_w / new_w
+        homogeneous_vertices = np.hstack([vertices, w_array])
 
-        projected_vertex = np.array([new_x, new_y, new_z])
-        return projected_vertex
+        homogeneous_matrix = np.array(
+            [
+                [aspectratio * f_rad, 0, 0, 0],
+                [0, f_rad, 0, 0],
+                [0, 0, q, (-self.near * q)],
+                [0, 0, 1, 0],
+            ]
+        )
+
+        new_vertices = homogeneous_vertices @ homogeneous_matrix.T
+
+        new_vertices = new_vertices / new_vertices[:, np.newaxis, 3]
+
+        return new_vertices[:, 0:3]
+
+    def array_distance_to_plane(
+        self, plane_p: np.ndarray, plane_n: np.ndarray, verticies: np.ndarray
+    ) -> np.ndarray:
+        """
+        Clipping the triangle against the plane.
+        Returns a list of new triangles that are clipped.
+
+        :param plane_n: The normal of the plane.
+        :param plane_p: The position of the plane.
+        :param vertex_1: The first vertex.
+        :param vertex_2: The second vertex.
+        :param vertex_3: The third vertex.
+        """
+
+        # Make sure the plane is normal
+        plane_n = vector_normalize(plane_n)
+
+        # Get distance for each vertex in triangle to plane
+        distances = array_distance_point_to_plane(plane_n, plane_p, verticies)
+
+        return distances
+
+    def array_triangle_clip_against_plane(
+        self,
+        plane_p: np.ndarray,
+        plane_n: np.ndarray,
+        vertices: np.ndarray,
+        triangles: np.ndarray,
+        colors: np.ndarray,
+    ):
+
+        distances = self.array_distance_to_plane(plane_p, plane_n, vertices)
+        list_verticies = []
+        list_colors = []
+        list_indices = []
+        vertex_count = 0
+
+        for triangle_index, triangle in enumerate(triangles):
+            index1, index2, index3 = triangle
+            vertex1 = vertices[index1]
+            vertex2 = vertices[index2]
+            vertex3 = vertices[index3]
+
+            distance1: float = distances[index1]  # type: ignore
+            distance2: float = distances[index2]  # type: ignore
+            distance3: float = distances[index3]  # type: ignore
+
+            clip_verticies, clip_indices, clip_colors = (
+                self.triangle_clip_against_plane(
+                    plane_p,
+                    plane_n,
+                    vertex1,
+                    vertex2,
+                    vertex3,
+                    distance1,
+                    distance2,
+                    distance3,
+                    colors[triangle_index],
+                )
+            )
+
+            list_indices.append(clip_indices + vertex_count)
+            vertex_count += len(clip_verticies)
+            list_verticies.append(clip_verticies)
+            list_colors.append(clip_colors)
+
+        new_indices = np.vstack(list_indices)
+        new_verticies = np.vstack(list_verticies)
+        new_colors = np.vstack(list_colors)
+
+        return new_indices, new_verticies, new_colors
 
     def triangle_clip_against_plane(
         self,
@@ -282,7 +408,11 @@ class Model_3d:
         vertex_1: np.ndarray,
         vertex_2: np.ndarray,
         vertex_3: np.ndarray,
-    ) -> list[Trigon]:
+        distance_1: float,
+        distance_2: float,
+        distance_3: float,
+        color: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Clipping the triangle against the plane.
         Returns a list of new triangles that are clipped.
@@ -323,12 +453,20 @@ class Model_3d:
         # Clipping depending on which vertices are outside/inside
         if len(inside) == 0:
             # All the vertices are outside
-            return []
+            return (
+                np.empty((0, 3)),
+                np.empty((0, 3), dtype=int),
+                np.empty((0, 3), dtype=int),
+            )
 
         if len(inside) == 3:
             # All the vertices are inside
             # Index will be filled in by the caller
-            return [Trigon(vertex_1, vertex_2, vertex_3, -1, np.array([]))]
+            return (
+                np.array([vertex_1, vertex_2, vertex_3]),
+                np.array([[0, 1, 2]]),
+                np.array([color], dtype=int),
+            )
 
         if len(inside) == 2 and len(outside) == 1:
             # Two vertices inside and one outside
@@ -344,24 +482,24 @@ class Model_3d:
 
             # Parallel with the plane
             if intersect_vertex_1 is None or intersect_vertex_2 is None:
-                return []
+                return (
+                    np.empty((0, 3)),
+                    np.empty((0, 3), dtype=int),
+                    np.empty((0, 3), dtype=int),
+                )
 
-            return [
-                Trigon(
-                    inside[0],
-                    inside[1],
-                    intersect_vertex_1,
-                    -1,
-                    np.array(PINK if self.clip_debug else []),
+            return (
+                np.array(
+                    [inside[0], inside[1], intersect_vertex_1, intersect_vertex_2]
                 ),
-                Trigon(
-                    inside[1],
-                    intersect_vertex_2,
-                    intersect_vertex_1,
-                    -1,
-                    np.array(WHITE if self.clip_debug else []),
+                np.array([[0, 1, 2], [1, 3, 2]]),
+                np.array(
+                    [
+                        np.array(PINK if self.clip_debug else color),
+                        np.array(WHITE if self.clip_debug else color),
+                    ]
                 ),
-            ]
+            )
 
         if len(inside) == 1 and len(outside) == 2:
             # One vertices inside and two outside
@@ -377,22 +515,48 @@ class Model_3d:
 
             # Parallel with the plane
             if intersect_vertex_1 is None or intersect_vertex_2 is None:
-                return []
-
-            return [
-                Trigon(
-                    inside[0],
-                    intersect_vertex_2,
-                    intersect_vertex_1,
-                    -1,
-                    np.array(GREY if self.clip_debug else []),
+                return (
+                    np.empty((0, 3)),
+                    np.empty((0, 3), dtype=int),
+                    np.empty((0, 3), dtype=int),
                 )
-            ]
+            return (
+                np.array([inside[0], intersect_vertex_2, intersect_vertex_1]),
+                np.array([[0, 1, 2]]),
+                np.array([np.array(GREY if self.clip_debug else color)]),
+            )
         # This should never occur
         raise Exception("Something very wrong has happend")
 
+    def array_project_screen(
+        self,
+        vertices: np.ndarray,
+        window_width: int,
+        window_height: int,
+    ):
+
+        half_width = window_width / 2
+        half_height = window_height / 2
+
+        # Projecting all the vertices to the camera plane
+        projected = self.array_project(vertices, window_width, window_height)
+
+        # Centering for viewport adjustments
+        center = np.array([1, 1, 0])
+        projected += center
+
+        # Scale into view
+        scale = np.array([half_width, half_height, 1])
+        projected *= scale
+
+        return projected
+
     def build_triangle(
-        self, trigon: Trigon, window_width: int, window_height: int
+        self,
+        vertex1: np.ndarray,
+        vertex2: np.ndarray,
+        vertex3: np.ndarray,
+        color: np.ndarray,
     ) -> None:
         """
         Building one triangle shape by projecting the vertex to the camera and transform to the viewport.
@@ -403,42 +567,44 @@ class Model_3d:
         :param window_width: Window width.
         :param window_heigth: Window heigth.
         """
-        half_width = window_width / 2
-        half_height = window_height / 2
 
-        # Copying the vertex to avoid modifing the original values
-        vertex1 = trigon.vertex_1.copy()
-        vertex2 = trigon.vertex_2.copy()
-        vertex3 = trigon.vertex_3.copy()
+        # # Building the triangles shapes
+        # triangle = Triangle(
+        #     vertex1[0],
+        #     vertex1[1],
+        #     vertex2[0],
+        #     vertex2[1],
+        #     vertex3[0],
+        #     vertex3[1],
+        #     color=tuple(color),
+        #     batch=self.batch,
+        # )
 
-        # Projecting all the vertices to the camera plane
-        vertex1 = self.project(vertex1, window_width, window_height)
-        vertex2 = self.project(vertex2, window_width, window_height)
-        vertex3 = self.project(vertex3, window_width, window_height)
-
-        # Centering for viewport adjustments
-        center = np.array([1, 1, 0])
-        vertex1 += center
-        vertex2 += center
-        vertex3 += center
-
-        # Scale into view
-        scale = np.array([half_width, half_height, 1])
-        vertex1 *= scale
-        vertex2 *= scale
-        vertex3 *= scale
-
-        # Building the triangles shapes
-        triangle = Triangle(
-            vertex1[0],
-            vertex1[1],
-            vertex2[0],
-            vertex2[1],
-            vertex3[0],
-            vertex3[1],
-            color=tuple(trigon.color),
-            batch=self.batch,
-        )
+        if self.next_triangle_index < len(self.triangles):
+            triangle = self.triangles[self.next_triangle_index]
+            triangle.x = vertex1[0]
+            triangle.y = vertex1[1]
+            triangle.x2 = vertex2[0]
+            triangle.y2 = vertex2[1]
+            triangle.x3 = vertex3[0]
+            triangle.y3 = vertex3[1]
+            triangle.color = tuple(color)
+            triangle.visible = True
+            self.next_triangle_index += 1
+        else:
+            # If not, draw new ones
+            triangle = Triangle(
+                vertex1[0],
+                vertex1[1],
+                vertex2[0],
+                vertex2[1],
+                vertex3[0],
+                vertex3[1],
+                color=tuple(color),
+                batch=self.batch,
+            )
+            self.triangles.append(triangle)
+            self.next_triangle_index += 1
 
         # Debugging helpers
         if self.wireframe:
@@ -452,7 +618,7 @@ class Model_3d:
                 Line(vertex1[0], vertex1[1], vertex3[0], vertex3[1], batch=self.batch)
             )
 
-        self.triangles.append(triangle)
+        # self.triangles.append(triangle)
 
     def build_triangles(self, window_width: int, window_height: int) -> None:
         """
@@ -464,29 +630,51 @@ class Model_3d:
         """
         # Originally named: draw
         # Draw the model to the screen
-        # Rebuild the triangles for each edge
-        for triangle_index in range(len(self.triangle_indices)):
-            color = self.colors[triangle_index]
-            triangle_array: np.ndarray = self.triangle_indices[triangle_index]
-            vertex1_index, vertex2_index, vertex3_index = triangle_array
-            # Make sure the vertices does not get the same coords/index? noe i den duren?
-            vertex1 = self.temporary_vertices[vertex1_index].copy()
-            vertex2 = self.temporary_vertices[vertex2_index].copy()
-            vertex3 = self.temporary_vertices[vertex3_index].copy()
+        new_indices, new_vertices, new_colors = self.array_triangle_clip_against_plane(
+            plane_p=np.array([0, 0, 0.1]),
+            plane_n=np.array([0, 0, 1]),
+            vertices=self.temporary_vertices,
+            triangles=self.triangle_indices,
+            colors=self.colors,
+        )
 
-            # Clipping the triangles
-            trigons = self.triangle_clip_against_plane(
-                np.array([0, 0, 0.1]), np.array([0, 0, 1]), vertex1, vertex2, vertex3
+        projected_vertices = self.array_project_screen(
+            vertices=new_vertices,
+            window_width=window_width,
+            window_height=window_height,
+        )
+
+        # Rebuild the triangles for each edge
+        for triangle_index in range(len(new_indices)):
+            color = new_colors[triangle_index]
+            triangle_array: np.ndarray = new_indices[triangle_index]
+            vertex1_index, vertex2_index, vertex3_index = triangle_array
+            # Make sure the vertices does not get the same coords/index
+            vertex1 = projected_vertices[vertex1_index]
+            vertex2 = projected_vertices[vertex2_index]
+            vertex3 = projected_vertices[vertex3_index]
+
+            self.build_triangle(
+                vertex1=vertex1,
+                vertex2=vertex2,
+                vertex3=vertex3,
+                color=color,
             )
 
-            # Get the new triangles
-            for trigon in trigons:
-                if len(trigon.color) == 0:
-                    trigon.color = color
 
-                trigon.index = triangle_index
+duration_bool = False
 
-                self.build_triangle(trigon, window_width, window_height)
+
+# Used for printing out how much time a function or code takes
+@contextmanager
+def measure_duration(text: str, is_active: bool):
+    if is_active:
+        start_time = datetime.now()
+        yield
+        duration = datetime.now() - start_time
+        print(f"{text} {duration}")
+    else:
+        yield
 
 
 def main():
@@ -563,7 +751,10 @@ def main():
         cube.prepare()
 
         # Rotate all the quaternions
-        cube.rotate(qx * qy * qz)
+        with measure_duration("Optimised rotate duration: ", duration_bool):
+            cube.rotate(qx * qy * qz)
+        with measure_duration("Old rotate duration: ", duration_bool):
+            cube.rotate2(qx * qy * qz)
 
         # Translate the relative postition
         cube.translate(cube.position)

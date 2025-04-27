@@ -77,11 +77,43 @@ class Quaternion:
         :param angle: The angle of rotation in radians.
         :return: A new quaternion representing the specified rotation.
         """
-        vector = np.array(vector).reshape(-1)
+        vector = vector.reshape(-1)
         vector = vector / np.linalg.norm(vector)
         return cls(np.cos(angle / 2), np.sin(angle / 2) * vector)
 
+    def multiply_vector_array(
+        self, inverse_quaternion: "Quaternion", vectors: np.ndarray
+    ):
+        # Combination of __mul__ and with inverse quaternion
+        # Uses numpy functions to work with multiple vectors
+        vector_part = self.scalar * vectors + np.cross(self.vector, vectors)
+        inverse_vector = inverse_quaternion.vector
+        vector = (
+            (-np.vecdot(self.vector, vectors) * inverse_vector[:, np.newaxis]).T
+            + inverse_quaternion.scalar * vector_part
+            + np.cross(vector_part, inverse_vector)
+        )
+        return vector
+
     def rotate_vectors(self, vectors: np.ndarray):
+        """
+        Rotates vector using a quaternion.
+
+        :param: Array of 3D vectors to rotate.
+        :return: Array of rotated vectors.
+        """
+        if vectors.ndim == 1:
+            # Input is 1D, makes it 2D
+            vector_count = len(vectors) // 3
+            vectors = vectors.reshape(vector_count, 3)
+        if vectors.shape[1] != 3:
+            raise ValueError("Each column should be a 3D vector")
+
+        rotated_vectors = self.multiply_vector_array(self.inverse(), vectors)
+
+        return rotated_vectors
+
+    def rotate_vectors2(self, vectors: np.ndarray):
         """
         Rotates vector using a quaternion.
 

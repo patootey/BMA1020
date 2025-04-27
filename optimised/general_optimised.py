@@ -24,28 +24,20 @@ class Trigon:
     "Color of trigon"
 
 
-# General functions for vectors
-def vector_dot_product(vector1: np.ndarray, vector2: np.ndarray):
-    """
-    Get the dot product of the vectors.
-    """
-    # Numpy does per element multiplication
-    return np.sum(vector1 * vector2)
-
-
-def vector_length(vector: np.ndarray):
-    """
-    Calculate length of the vector and return it.
-    """
-    return np.sqrt(vector_dot_product(vector, vector))
-
-
 def vector_normalize(vector: np.ndarray):
     """
     Normalizing the vector.
     """
-    length = vector_length(vector)
+    length = np.linalg.norm(vector)
     return vector / length
+
+
+def array_vector_normalize(vectors: np.ndarray):
+    """
+    Normalizing the vector.
+    """
+    length = np.linalg.norm(vectors, axis=1)
+    return vectors / length
 
 
 def distance_point_to_plane(
@@ -63,7 +55,25 @@ def distance_point_to_plane(
     plane_n = vector_normalize(plane_n)
 
     # Return shortes distance from point to plane
-    return vector_dot_product(plane_n, point) - vector_dot_product(plane_n, plane_p)
+    return np.dot(plane_n, point) - np.dot(plane_n, plane_p)
+
+
+def array_distance_point_to_plane(
+    plane_n: np.ndarray, plane_p: np.ndarray, points: np.ndarray
+) -> np.ndarray:
+    """
+    Getting the distance between a point and plane.
+
+    :param plane_n: The normal of the plane.
+    :param plane_p: The position of the plane.
+    :param point: The point position.
+    """
+
+    # Plane needs to be normalized
+    plane_n = vector_normalize(plane_n)
+
+    # Return shortes distance from point to plane
+    return np.vecdot(plane_n, points) - np.vecdot(plane_n, plane_p)
 
 
 def line_intersect_plane(
@@ -87,9 +97,9 @@ def line_intersect_plane(
     plane_n = vector_normalize(plane_n)
 
     # D element of the plane
-    plane_d = -vector_dot_product(plane_n, plane_p)
-    ad = vector_dot_product(point_1, plane_n)
-    bd = vector_dot_product(point_2, plane_n)
+    plane_d = -np.dot(plane_n, plane_p)
+    ad = np.dot(point_1, plane_n)
+    bd = np.dot(point_2, plane_n)
 
     # If line is parallel with the plane
     if ad == bd:
