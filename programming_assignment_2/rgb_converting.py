@@ -73,7 +73,7 @@ def hermite_interpolation(target_time, time, pos, speed):
         return position, velocity
 
 
-lms_values = np.loadtxt("LMS.csv", delimiter=";")
+lms_values = np.loadtxt("programming_assignment_2/LMS.csv", delimiter=";")
 
 
 def create_hermite_interpolation(time_points, position_values):
