@@ -24,7 +24,8 @@ from general_optimised import (
     line_intersect_plane,
     # Trigon,
     vector_normalize,
-    array_distance_point_to_plane,
+    # array_distance_point_to_plane,
+    array_distance_to_plane,
 )
 import numpy as np
 import pyglet
@@ -256,43 +257,6 @@ class Model_3d:
         for i in range(len(self.temporary_vertices)):
             self.temporary_vertices[i] = self.temporary_vertices[i] + vector
 
-    # def project(
-    #     self, vertex: np.ndarray, window_width: int, window_height: int
-    # ) -> np.ndarray:
-    #     """
-    #     Project the vertex onto the camera plane and returns it.
-
-    #     :param vertex: The vertex to project.
-    #     :param window_width: Window width.
-    #     :param window_heigth: Window heigth.
-    #     :return: Transformed vertex.
-    #     """
-    #     # This type of projection I got from watching Youtube videos about 3D projecting and clipping
-    #     aspectratio = window_height / window_width
-    #     # Inverse tan based on FOV
-    #     f_rad = 1 / np.tan(np.radians(self.fov) / 2)
-    #     q = (self.far) / (self.far - self.near)
-    #     # homogeneous coordinates
-    #     org_x, org_y, org_z = vertex
-    #     org_w = 1
-
-    #     # Normalize to viewing volume
-    #     new_x = aspectratio * f_rad * org_x
-    #     new_y = f_rad * org_y
-    #     new_z = q * org_z + (-self.near * q) * org_w
-    #     new_w = org_w * org_z
-
-    #     # Perspective transformation
-    #     # Due to normalization and clipping, we know it will never divide by 0
-    #     new_x = new_x / new_w
-    #     new_y = new_y / new_w
-    #     new_z = new_z / new_w
-    #     # New_w disappears due to division by itself
-    #     new_w = new_w / new_w
-
-    #     projected_vertex = np.array([new_x, new_y, new_z])
-    #     return projected_vertex
-
     def array_project(
         self, vertices: np.ndarray, window_width: int, window_height: int
     ) -> np.ndarray:
@@ -329,28 +293,6 @@ class Model_3d:
 
         return new_vertices[:, 0:3]
 
-    def array_distance_to_plane(
-        self, plane_p: np.ndarray, plane_n: np.ndarray, verticies: np.ndarray
-    ) -> np.ndarray:
-        """
-        Clipping the triangle against the plane.
-        Returns a list of new triangles that are clipped.
-
-        :param plane_n: The normal of the plane.
-        :param plane_p: The position of the plane.
-        :param vertex_1: The first vertex.
-        :param vertex_2: The second vertex.
-        :param vertex_3: The third vertex.
-        """
-
-        # Make sure the plane is normal
-        plane_n = vector_normalize(plane_n)
-
-        # Get distance for each vertex in triangle to plane
-        distances = array_distance_point_to_plane(plane_n, plane_p, verticies)
-
-        return distances
-
     def array_triangle_clip_against_plane(
         self,
         plane_p: np.ndarray,
@@ -360,7 +302,7 @@ class Model_3d:
         colors: np.ndarray,
     ):
 
-        distances = self.array_distance_to_plane(plane_p, plane_n, vertices)
+        distances = array_distance_to_plane(plane_p, plane_n, vertices)
         list_verticies = []
         list_colors = []
         list_indices = []
@@ -567,18 +509,6 @@ class Model_3d:
         :param window_width: Window width.
         :param window_heigth: Window heigth.
         """
-
-        # # Building the triangles shapes
-        # triangle = Triangle(
-        #     vertex1[0],
-        #     vertex1[1],
-        #     vertex2[0],
-        #     vertex2[1],
-        #     vertex3[0],
-        #     vertex3[1],
-        #     color=tuple(color),
-        #     batch=self.batch,
-        # )
 
         if self.next_triangle_index < len(self.triangles):
             triangle = self.triangles[self.next_triangle_index]
