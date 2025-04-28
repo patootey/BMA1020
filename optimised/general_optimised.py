@@ -76,6 +76,29 @@ def array_distance_point_to_plane(
     return np.vecdot(plane_n, points) - np.vecdot(plane_n, plane_p)
 
 
+def array_distance_to_plane(
+    plane_p: np.ndarray, plane_n: np.ndarray, verticies: np.ndarray
+) -> np.ndarray:
+    """
+    Clipping the triangle against the plane.
+    Returns a list of new triangles that are clipped.
+
+    :param plane_n: The normal of the plane.
+    :param plane_p: The position of the plane.
+    :param vertex_1: The first vertex.
+    :param vertex_2: The second vertex.
+    :param vertex_3: The third vertex.
+    """
+
+    # Make sure the plane is normal
+    plane_n = vector_normalize(plane_n)
+
+    # Get distance for each vertex in triangle to plane
+    distances = array_distance_point_to_plane(plane_n, plane_p, verticies)
+
+    return distances
+
+
 def line_intersect_plane(
     plane_p: np.ndarray,
     plane_n: np.ndarray,
