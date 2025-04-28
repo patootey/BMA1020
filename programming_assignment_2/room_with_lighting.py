@@ -21,8 +21,9 @@ from datetime import datetime
 from global_functions import (
     distance_point_to_plane,
     line_intersect_plane,
-    Trigon,
+    # Trigon,
     vector_normalize,
+    array_distance_to_plane,
 )
 import numpy as np
 import pyglet
@@ -266,6 +267,92 @@ class Light_model_3d:
         projected_vertex = np.array([new_x, new_y, new_z])
         return projected_vertex
 
+    def array_project(
+        self, vertices: np.ndarray, window_width: int, window_height: int
+    ) -> np.ndarray:
+        """
+        Project the vertex onto the camera plane and returns it.
+
+        :param vertex: The vertex to project.
+        :param window_width: Window width.
+        :param window_heigth: Window heigth.
+        :return: Transformed vertex.
+        """
+        # This type of projection I got from watching Youtube videos about 3D projecting and clipping
+        aspectratio = window_height / window_width
+        # Inverse tan based on FOV
+        f_rad = 1 / np.tan(np.radians(self.fov) / 2)
+        q = (self.far) / (self.far - self.near)
+
+        w_array = np.full(len(vertices), 1)[:, np.newaxis]
+
+        homogeneous_vertices = np.hstack([vertices, w_array])
+
+        homogeneous_matrix = np.array(
+            [
+                [aspectratio * f_rad, 0, 0, 0],
+                [0, f_rad, 0, 0],
+                [0, 0, q, (-self.near * q)],
+                [0, 0, 1, 0],
+            ]
+        )
+
+        new_vertices = homogeneous_vertices @ homogeneous_matrix.T
+
+        new_vertices = new_vertices / new_vertices[:, np.newaxis, 3]
+
+        return new_vertices[:, 0:3]
+
+    def array_triangle_clip_against_plane(
+        self,
+        plane_p: np.ndarray,
+        plane_n: np.ndarray,
+        vertices: np.ndarray,
+        triangles: np.ndarray,
+        colors: np.ndarray,
+    ):
+
+        distances = array_distance_to_plane(plane_p, plane_n, vertices)
+        list_verticies = []
+        list_colors = []
+        list_indices = []
+        vertex_count = 0
+
+        for triangle_index, triangle in enumerate(triangles):
+            index1, index2, index3 = triangle
+            vertex1 = vertices[index1]
+            vertex2 = vertices[index2]
+            vertex3 = vertices[index3]
+
+            distance1: float = distances[index1]  # type: ignore
+            distance2: float = distances[index2]  # type: ignore
+            distance3: float = distances[index3]  # type: ignore
+
+            clip_verticies, clip_indices, clip_colors = (
+                self.triangle_clip_against_plane(
+                    plane_p,
+                    plane_n,
+                    vertex1,
+                    vertex2,
+                    vertex3,
+                    distance1,
+                    distance2,
+                    distance3,
+                    colors[triangle_index],
+                )
+            )
+
+            list_indices.append(clip_indices + vertex_count)
+            vertex_count += len(clip_verticies)
+            list_verticies.append(clip_verticies)
+            list_colors.append(clip_colors)
+
+        new_indices = np.vstack(list_indices)
+        new_verticies = np.vstack(list_verticies)
+        new_colors = np.vstack(list_colors)
+
+        return new_indices, new_verticies, new_colors
+
     def triangle_clip_against_plane(
         self,
         plane_p: np.ndarray,
@@ -273,7 +360,11 @@ class Light_model_3d:
         vertex_1: np.ndarray,
         vertex_2: np.ndarray,
         vertex_3: np.ndarray,
-    ) -> list[Trigon]:
+        distance_1: float,
+        distance_2: float,
+        distance_3: float,
+        color: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Clipping the triangle against the plane.
         Returns a list of new triangles that are clipped.
@@ -284,6 +375,7 @@ class Light_model_3d:
         :param vertex_2: The second vertex.
         :param vertex_3: The third vertex.
         """
+
         # Make sure the plane is normal
         plane_n = vector_normalize(plane_n)
 
@@ -313,12 +405,20 @@ class Light_model_3d:
         # Clipping depending on which vertices are outside/inside
         if len(inside) == 0:
             # All the vertices are outside
-            return []
+            return (
+                np.empty((0, 3)),
+                np.empty((0, 3), dtype=int),
+                np.empty((0, 3), dtype=int),
+            )
 
         if len(inside) == 3:
             # All the vertices are inside
             # Index will be filled in by the caller
-            return [Trigon(vertex_1, vertex_2, vertex_3, -1, np.array([]))]
+            return (
+                np.array([vertex_1, vertex_2, vertex_3]),
+                np.array([[0, 1, 2]]),
+                np.array([color], dtype=int),
+            )
 
         if len(inside) == 2 and len(outside) == 1:
             # Two vertices inside and one outside
@@ -334,24 +434,24 @@ class Light_model_3d:
 
             # Parallel with the plane
             if intersect_vertex_1 is None or intersect_vertex_2 is None:
-                return []
+                return (
+                    np.empty((0, 3)),
+                    np.empty((0, 3), dtype=int),
+                    np.empty((0, 3), dtype=int),
+                )
 
-            return [
-                Trigon(
-                    inside[0],
-                    inside[1],
-                    intersect_vertex_1,
-                    -1,
-                    np.array(PINK if self.clip_debug else []),
+            return (
+                np.array(
+                    [inside[0], inside[1], intersect_vertex_1, intersect_vertex_2]
                 ),
-                Trigon(
-                    inside[1],
-                    intersect_vertex_2,
-                    intersect_vertex_1,
-                    -1,
-                    np.array(WHITE if self.clip_debug else []),
+                np.array([[0, 1, 2], [1, 3, 2]]),
+                np.array(
+                    [
+                        np.array(PINK if self.clip_debug else color),
+                        np.array(WHITE if self.clip_debug else color),
+                    ]
                 ),
-            ]
+            )
 
         if len(inside) == 1 and len(outside) == 2:
             # One vertices inside and two outside
@@ -367,23 +467,49 @@ class Light_model_3d:
 
             # Parallel with the plane
             if intersect_vertex_1 is None or intersect_vertex_2 is None:
-                return []
-
-            return [
-                Trigon(
-                    inside[0],
-                    intersect_vertex_2,
-                    intersect_vertex_1,
-                    -1,
-                    np.array(GREY if self.clip_debug else []),
+                return (
+                    np.empty((0, 3)),
+                    np.empty((0, 3), dtype=int),
+                    np.empty((0, 3), dtype=int),
                 )
-            ]
+            return (
+                np.array([inside[0], intersect_vertex_2, intersect_vertex_1]),
+                np.array([[0, 1, 2]]),
+                np.array([np.array(GREY if self.clip_debug else color)]),
+            )
         # This should never occur
         raise Exception("Something very wrong has happend")
 
+    def array_project_screen(
+        self,
+        vertices: np.ndarray,
+        window_width: int,
+        window_height: int,
+    ):
+
+        half_width = window_width / 2
+        half_height = window_height / 2
+
+        # Projecting all the vertices to the camera plane
+        projected = self.array_project(vertices, window_width, window_height)
+
+        # Centering for viewport adjustments
+        center = np.array([1, 1, 0])
+        projected += center
+
+        # Scale into view
+        scale = np.array([half_width, half_height, 1])
+        projected *= scale
+
+        return projected
+
     def build_triangle(
-        self, trigon: Trigon, window_width: int, window_height: int
-    ) -> None:  # 10 points
+        self,
+        vertex1: np.ndarray,
+        vertex2: np.ndarray,
+        vertex3: np.ndarray,
+        color: np.ndarray,
+    ) -> None:
         """
         Building one triangle shape by projecting the vertex to the camera and transform to the viewport.
         Then adds the triangle to the active triangle list.
@@ -393,33 +519,6 @@ class Light_model_3d:
         :param window_width: Window width.
         :param window_heigth: Window heigth.
         """
-        # Originally named: draw_index
-        half_width = window_width / 2
-        half_height = window_height / 2
-
-        # Copying the vertex to avoid modifing the original values
-        vertex1 = trigon.vertex_1.copy()
-        vertex2 = trigon.vertex_2.copy()
-        vertex3 = trigon.vertex_3.copy()
-
-        # Projecting all the vertices to the camera plane
-        vertex1 = self.project(vertex1, window_width, window_height)
-        vertex2 = self.project(vertex2, window_width, window_height)
-        vertex3 = self.project(vertex3, window_width, window_height)
-
-        # Centering for viewport adjustments
-        center = np.array([1, 1, 0])
-        vertex1 += center
-        vertex2 += center
-        vertex3 += center
-
-        # Scale into view
-        scale = np.array([half_width, half_height, 1])
-        vertex1 *= scale
-        vertex2 *= scale
-        vertex3 *= scale
-
-        # Reuse the triangles already drawn if possible
         if self.next_triangle_index < len(self.triangles):
             triangle = self.triangles[self.next_triangle_index]
             triangle.x = vertex1[0]
@@ -428,7 +527,7 @@ class Light_model_3d:
             triangle.y2 = vertex2[1]
             triangle.x3 = vertex3[0]
             triangle.y3 = vertex3[1]
-            triangle.color = tuple(trigon.color)
+            triangle.color = tuple(color)
             triangle.visible = True
             self.next_triangle_index += 1
         else:
@@ -440,7 +539,7 @@ class Light_model_3d:
                 vertex2[1],
                 vertex3[0],
                 vertex3[1],
-                color=tuple(trigon.color),
+                color=tuple(color),
                 batch=self.batch,
             )
             self.triangles.append(triangle)
@@ -458,9 +557,9 @@ class Light_model_3d:
                 Line(vertex1[0], vertex1[1], vertex3[0], vertex3[1], batch=self.batch)
             )
 
-    def build_triangles(
-        self, window_width: int, window_height: int
-    ) -> None:  # up to 25 points
+        # self.triangles.append(triangle)
+
+    def build_triangles(self, window_width: int, window_height: int) -> None:
         """
         Builds all the triangles for the viewport.
         The triangles will be rendered by pyglet.
@@ -469,27 +568,37 @@ class Light_model_3d:
         :param window_height: Window heigth.
         """
         # Originally named: draw
+        # Draw the model to the screen
+        new_indices, new_vertices, new_colors = self.array_triangle_clip_against_plane(
+            plane_p=np.array([0, 0, 0.1]),
+            plane_n=np.array([0, 0, 1]),
+            vertices=self.temporary_vertices,
+            triangles=self.triangle_indices,
+            colors=self.colors,
+        )
+
+        projected_vertices = self.array_project_screen(
+            vertices=new_vertices,
+            window_width=window_width,
+            window_height=window_height,
+        )
+
         # Rebuild the triangles for each edge
-        for triangle_index in range(len(self.triangle_indices)):
-            color = self.colors[triangle_index]
-            triangle_array: np.ndarray = self.triangle_indices[triangle_index]
+        for triangle_index in range(len(new_indices)):
+            color = new_colors[triangle_index]
+            triangle_array: np.ndarray = new_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
             # Make sure the vertices does not get the same coords/index
-            vertex1 = self.temporary_vertices[vertex1_index]
-            vertex2 = self.temporary_vertices[vertex2_index]
-            vertex3 = self.temporary_vertices[vertex3_index]
+            vertex1 = projected_vertices[vertex1_index]
+            vertex2 = projected_vertices[vertex2_index]
+            vertex3 = projected_vertices[vertex3_index]
 
-            # Clipping the triangles
-            trigons = self.triangle_clip_against_plane(
-                np.array([0, 0, 0.1]), np.array([0, 0, 1]), vertex1, vertex2, vertex3
+            self.build_triangle(
+                vertex1=vertex1,
+                vertex2=vertex2,
+                vertex3=vertex3,
+                color=color,
             )
-
-            # Get the new triangles
-            for trigon in trigons:
-                if len(trigon.color) == 0:
-                    trigon.color = color
-                trigon.index = triangle_index
-                self.build_triangle(trigon, window_width, window_height)
 
     @classmethod  # 10 points
     def model_rect(
@@ -626,40 +735,56 @@ class Light_model_3d:
         num_triangles = len(self.triangle_indices)
         self.form_factor_array = np.zeros((num_triangles, num_triangles))
 
+        centroids = np.zeros((num_triangles, 3))
         for i in range(num_triangles):
-            for j in range(num_triangles):
-                if i == j:
-                    # No self-illumination
-                    self.form_factor_array[i, j] = 0.0
-                    continue
+            centroids[i] = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
 
-                # Get the coordinates of the vertices for elements i and j
-                centroid_i = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
-                centroid_j = np.mean(self.vertices[self.triangle_indices[j]], axis=0)
+        centroids_i = centroids[:, np.newaxis, :]
+        centroids_j = centroids[np.newaxis, :, :]
 
-                # Vector from i to j
-                r_vector = centroid_j - centroid_i
-                r_normalize = np.linalg.norm(r_vector)
+        r_vectors = centroids_j - centroids_i
 
-                if r_normalize == 0:
-                    self.form_factor_array[i, j] = 0.0
-                    continue
+        r_norms = np.linalg.norm(r_vectors, axis=2)
 
-                # Unit direction vector
-                r_unit = r_vector / r_normalize
+        # Create a mask for diagonal elements to avoid division by zero
+        # HJELP AV AI
+        non_diagonal = np.ones((num_triangles, num_triangles), dtype=bool)
+        np.fill_diagonal(non_diagonal, False)
 
-                dot_ni = np.dot(r_unit, self.normal_array[i])
-                dot_nj = np.dot(-r_unit, self.normal_array[j])
+        # Only process non-diagonal elements
+        i_indices, j_indices = np.where(non_diagonal)
 
-                if dot_ni <= 0 or dot_nj <= 0:
-                    self.form_factor_array[i, j] = 0.0
-                    continue
+        valid_r_vectors = r_vectors[i_indices, j_indices]
+        valid_r_norms = r_norms[i_indices, j_indices]
 
-                F_ij = self.area_array[j] * (dot_ni * dot_nj) / (np.pi * r_normalize**2)
+        # Compute unit direction vectors
+        valid_r_units = valid_r_vectors / valid_r_norms[:, np.newaxis]
 
-                self.form_factor_array[i, j] = F_ij
+        normals_i = self.normal_array[i_indices]
+        dot_ni = np.sum(valid_r_units * normals_i, axis=1)
 
-    def find_luminances(self, num_iterations: int = 50) -> np.ndarray:
+        normals_j = self.normal_array[j_indices]
+        dot_nj = np.sum(-valid_r_units * normals_j, axis=1)
+
+        valid_dots = (dot_ni > 0) & (dot_nj > 0)
+
+        valid_i = i_indices[valid_dots]
+        valid_j = j_indices[valid_dots]
+
+        final_dot_ni = dot_ni[valid_dots]
+        final_dot_nj = dot_nj[valid_dots]
+        final_r_norms = valid_r_norms[valid_dots]
+
+        computed_factors = (
+            self.area_array[valid_j]
+            * (final_dot_ni * final_dot_nj)
+            / (np.pi * final_r_norms**2)
+        )
+
+        # Assign calculated values to the form factor array
+        self.form_factor_array[valid_i, valid_j] = computed_factors
+
+    def find_luminances(self, num_iterations: int) -> np.ndarray:
         """
         Compute the final luminance (radiosity) values for each triangle
         using an iterative radiosity method.
@@ -670,35 +795,38 @@ class Light_model_3d:
         """
 
         num_triangles = len(self.triangle_indices)
-
-        # Initialize radiosity with just emission (no ambient light)
         radiosity_array = self.emit_array.copy()
-
-        # Store a copy of the initial emission for convergence
         initial_emission_array = self.emit_array.copy()
+
+        # Create a mask to exclude diagonal elements (i==j)
+        # HJELP AV AI
+        mask_non_diagonal = np.ones((num_triangles, num_triangles), dtype=bool)
+        np.fill_diagonal(mask_non_diagonal, False)
 
         for _ in range(num_iterations):
             prev_radiosity = radiosity_array.copy()
-            for i in range(num_triangles):
-                # Start with direct emission only (no ambient term)
-                radiosity_array[i] = initial_emission_array[i].copy()
 
-                # Add reflected component from all other surfaces
-                for j in range(num_triangles):
-                    if i == j:
-                        continue
-                    # Light that bounces from surface j to surface i
-                    radiosity_array[i] += (
-                        self.reflect_array[i]
-                        * self.form_factor_array[i, j]
-                        * prev_radiosity[j]
-                    )
+            radiosity_array = initial_emission_array.copy()
 
-        # Store and return results
-        self.luminances = np.clip(radiosity_array, 0, 1)
-        return self.luminances
+            prev_radiosity_expanded = prev_radiosity[np.newaxis, :, :]
+            form_factors_expanded = self.form_factor_array[:, :, np.newaxis]
+            reflect_expanded = self.reflect_array[:, np.newaxis, :]
+            mask_non_diagonal_expanded = mask_non_diagonal[:, :, np.newaxis]
 
-    def find_colors(self, num_iterations: int = 50) -> np.ndarray:  # 10 points
+            light_contributions = form_factors_expanded * prev_radiosity_expanded
+            reflected_light = reflect_expanded * light_contributions
+
+            # only the ones that are not diagonal i == j
+            reflected_light = reflected_light * mask_non_diagonal_expanded
+
+            total_reflected = np.sum(reflected_light, axis=1)
+            radiosity_array += total_reflected
+
+        # Clip values to a valid range and return
+        luminances = np.clip(radiosity_array, 0, 1)
+        return luminances
+
+    def find_colors(self, num_iterations: int) -> np.ndarray:  # 10 points
         """
         Convert computed luminance values into gamma-corrected RGB color values.
         Used some from assignment 8
@@ -760,9 +888,8 @@ def main() -> None:
         reflect=np.empty((0, 3)),
     )
 
-    cube_size = 100
-    cube_divisions = 10
-
+    cube_size = 150
+    cube_divisions = 11
     # Front wall
     front_wall = cube.model_rect(
         -cube_size / 2,
