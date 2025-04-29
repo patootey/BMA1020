@@ -8,12 +8,18 @@ height = 480
 rng = np.random.default_rng(12345)
 
 # choose your own values:
-m = 11
-n = 9
+grid_x_size = 11
+grid_y_size = 9
+
 
 # generates the grid by
-x_grid, y_grid = np.meshgrid(np.linspace(0, width, m), np.linspace(0, height, n))
+x_grid, y_grid = np.meshgrid(
+    np.linspace(0, width, grid_x_size), np.linspace(0, height, grid_y_size)
+)
 
+
+cell_width = width // (grid_x_size - 1)
+cell_height = height // (grid_y_size - 1)
 # Remember rng, the random number generator from the first question?
 # Use rng to generate an (m x n) array of 2d unit vectors, i.e. a (2 x m x n) array
 # such that np.sum(vectors ** 2, axis=0) is an array of ones
@@ -21,7 +27,7 @@ x_grid, y_grid = np.meshgrid(np.linspace(0, width, m), np.linspace(0, height, n)
 # Use rng to generate an (m x n) array of 2d unit vectors
 
 # Got from Caroline
-angles = 2 * np.pi * rng.random((m, n))
+angles = 2 * np.pi * rng.random((grid_x_size, grid_y_size))
 vectors = np.array([np.cos(angles), np.sin(angles)])
 
 
@@ -30,103 +36,50 @@ def easeCurve(t):  # to smooth the noise (f(t) from PDF)
     return 3 * t**2 - 2 * t**3
 
 
-def noiseCaroline(x, y, x_grid, y_grid, vectors: np.ndarray):
-    i = min(int(x * (m - 1) / width), m - 2)
-    j = min(int(y * (n - 1) / height), n - 2)
-
-    # get the four corner coordinates of the cell
-
-    x0, y0 = x_grid[j, i], y_grid[j, i]  # lower left
-    x1, y1 = x_grid[j, i + 1], y_grid[j, i + 1]  # lower right
-    x2, y2 = x_grid[j + 1, i], y_grid[j + 1, i]  # upper left
-    x3, y3 = x_grid[j + 1, i + 1], y_grid[j + 1, i + 1]  # upper right
-
-    # calculate the relative position in the cell --> help from TA
-    tx = (x - x0) / (x1 - x0)
-    ty = (y - y0) / (y2 - y0)
-
-    # find vectors in the corners
-    vec0 = vectors[:, i, j]
-    vec1 = vectors[:, i + 1, j]
-    vec2 = vectors[:, i, j + 1]
-    vec3 = vectors[:, i + 1, j + 1]
-
-    # find the corner noises
-    s0 = np.dot(vec0, [x - x0, y - y0])
-    s1 = np.dot(vec1, [x - x1, y - y1])
-    s2 = np.dot(vec2, [x - x2, y - y2])
-    s3 = np.dot(vec3, [x - x3, y - y3])
-
-    # interpolate using the easeCurve function in x-direction
-    txSmooth = easeCurve(tx)
-    Edgebottom = s0 + txSmooth * (s1 - s0)  # interpolate bottom edge
-    Edgetop = s2 + txSmooth * (s3 - s2)  # interpolate top edge
-
-    # and y-direction
-    tySmooth = easeCurve(ty)
-    noise = Edgebottom + tySmooth * (Edgetop - Edgebottom)
-
-    return noise
+def lerp(a, b, t):
+    return a * (1 - t) + b * t
 
 
 def noise(x, y, x_grid, y_grid, vectors: np.ndarray):
+    # Define i and j
+    i = np.clip(int(x / cell_width), 0, grid_x_size - 2)
+    j = np.clip(int(y / cell_height), 0, grid_y_size - 2)
 
-    cell_width = width / (m - 1)
-    cell_height = height / (n - 1)
+    # tl = top left, tr = top right, bl = bottom left, br = bottom right
+    x_bl = x_grid[j, i]
+    y_bl = y_grid[j, i]
+    x_br = x_grid[j, i + 1]
+    y_br = y_grid[j, i + 1]
+    x_tl = x_grid[j + 1, i]
+    y_tl = y_grid[j + 1, i]
+    x_tr = x_grid[j + 1, i + 1]
+    y_tr = y_grid[j + 1, i + 1]
 
-    # Find the grid indices
-    i = int(x / cell_width)
-    j = int(y / cell_height)
+    tx = (x - x_bl) / (x_br - x_bl)
+    ty = (y - y_bl) / (y_tl - y_bl)
 
-    # Fikset clipping
-    i = np.clip(i, 0, m - 2)
-    j = np.clip(j, 0, n - 2)
+    # Smooth the noise
+    smoothtx = easeCurve(tx)
+    smoothty = easeCurve(ty)
 
-    # Virker som det er feil her
-    tx = (x - x_grid[j, i]) / cell_width
-    ty = (y - y_grid[j, i]) / cell_height
-
-    # Hvorfor har caroline plustelig motsatt her?
-    # x0, y0 = x_grid[j, i], y_grid[j, i]  # lower left
-    # x1, y1 = x_grid[j, i + 1], y_grid[j, i + 1]  # lower right
-    # x2, y2 = x_grid[j + 1, i], y_grid[j + 1, i]  # upper left
-    # x3, y3 = x_grid[j + 1, i + 1], y_grid[j + 1, i + 1]  # upper right
-
-    # # calculate the relative position in the cell --> help from TA
-    # tx = (x - x0) / (x1 - x0)
-    # ty = (y - y0) / (y2 - y0)
-
-    tx = easeCurve(tx)
-    ty = easeCurve(ty)
-
-    v1 = vectors[:, i, j]
-    v2 = vectors[:, i, j + 1]
-    v3 = vectors[:, i + 1, j]
-    v4 = vectors[:, i + 1, j + 1]
-    # Compute the distance
-    d1 = np.array([tx, ty])  # Vector to bottom-left
-    d2 = np.array([tx - 1, ty])  # Vector to bottom-right
-    d3 = np.array([tx, ty - 1])  # Vector to top-left
-    d4 = np.array([tx - 1, ty - 1])  # Vector to top-right
+    # Find vectors to corners
+    v_bl = vectors[:, i, j]
+    v_br = vectors[:, i + 1, j]
+    v_tl = vectors[:, i, j + 1]
+    v_tr = vectors[:, i + 1, j + 1]
 
     # Compute dot products between corner vectors and distance vectors
-    s1 = np.dot(v1, d1)
-    s2 = np.dot(v2, d2)
-    s3 = np.dot(v3, d3)
-    s4 = np.dot(v4, d4)
+    s_bl = np.dot(v_bl, [x - x_bl, y - y_bl])
+    s_br = np.dot(v_br, [x - x_br, y - y_br])
+    s_tl = np.dot(v_tl, [x - x_tl, y - y_tl])
+    s_tr = np.dot(v_tr, [x - x_tr, y - y_tr])
 
-    # carolinme sin måte
-    # s0 = np.dot(vec0, [x - x0, y - y0])
-    # s1 = np.dot(vec1, [x - x1, y - y1])
-    # s2 = np.dot(vec2, [x - x2, y - y2])
-    # s3 = np.dot(vec3, [x - x3, y - y3])
+    # Interpolate between dot products
+    d_lower = lerp(s_bl, s_br, smoothtx)
+    d_upper = lerp(s_tl, s_tr, smoothtx)
 
-    # Followed notes? wrong?
-    d1 = s1 * tx + (1 - tx) * s2
-    d2 = s3 * tx * (1 - tx) * s4
-
-    noise_i_j = d1 * ty + (1 - ty) * d2
-    return noise_i_j
+    noise = lerp(d_lower, d_upper, smoothty)
+    return noise
 
 
 def generate_noise_image(width, height, x_grid, y_grid, vectors, scale=1.0):
