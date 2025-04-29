@@ -888,8 +888,8 @@ def main() -> None:
         reflect=np.empty((0, 3)),
     )
 
-    cube_size = 150
-    cube_divisions = 11
+    cube_size = 125
+    cube_divisions = 10
     # Front wall
     front_wall = cube.model_rect(
         -cube_size / 2,
