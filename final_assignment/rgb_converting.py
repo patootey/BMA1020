@@ -211,8 +211,6 @@ def LMS_to_RGB(luminances: np.ndarray):  # 5 points
     matrix_inverse = np.linalg.inv(rgb_to_lms_matrix)
 
     # Convert LMS to RGB
-    # VEC DOT OR NO??????????????
-
     rgb_linear = np.dot(matrix_inverse, luminances)
 
     # Clip values to ensure they're within a valid range (0-1)
