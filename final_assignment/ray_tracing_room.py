@@ -23,6 +23,8 @@ from global_functions import (
     line_intersect_plane,
     vector_normalize,
     array_distance_to_plane,
+    midpoint_2d,
+    form_factors_raytrace,
 )
 import numpy as np
 import pyglet
@@ -119,6 +121,8 @@ class Ray_tracing_model_3d:
         self.normal_array: np.ndarray = np.array([])
         self.area_array: np.ndarray = np.array([])
         self.form_factor_array: np.ndarray = np.array([])
+
+        self.ray_trace = False
 
     def prepare(self) -> None:
         """
@@ -629,9 +633,32 @@ class Ray_tracing_model_3d:
             )
         )
         z_values = np.zeros((x_divisions * y_divisions, 1))
-        vertices = np.hstack((flat_xy, z_values))
 
-        # Create triangles by connecting grid points
+        if midpoint:
+            # Create a random number generator
+            # rng = np.random.rand(1)
+
+            # Create a square heightmap (required for midpoint algorithm)
+            size = max(x_divisions, y_divisions)
+            square_size = 2**size + 1
+            heightmap = np.zeros((square_size, square_size))
+
+            # Initialize the four corners
+            heightmap[0, 0] = 0  # Top-left
+            heightmap[0, 2**square_size] = 0  # Top-right
+            heightmap[2**square_size, 0] = 0  # Bottom-left
+            heightmap[2**square_size, 2**square_size] = 0  # Bottom-right
+
+            # Apply the midpoint displacement algorithm
+            heightmap = midpoint_2d(heightmap, 0, 0, square_size, midpoint_scale)
+
+            # Relavent
+            heightmap = heightmap[:y_divisions, :x_divisions]
+
+            # Reshape heightmap to match z_values shape
+            z_values = heightmap.flatten()[:, np.newaxis]
+
+        vertices = np.hstack((flat_xy, z_values))
         triangle_indices = []
 
         for row in range(y_divisions - 1):
@@ -670,10 +697,6 @@ class Ray_tracing_model_3d:
         return Ray_tracing_model_3d(
             translated_vertices, triangle_indices, emit_array, reflect_array
         )
-
-    def midpoint(self, A, i, j, rand_scale):
-        # your method can call your routine from assignment 9.
-        pass
 
     def update_geometry(self) -> None:  # 5 points
         """
@@ -719,56 +742,64 @@ class Ray_tracing_model_3d:
         Uses the formula:
             Fij = (1/Ai) * ∫∫ (cos(θi)cos(θj)/(π*r²)) dAidAj
         """
-        num_triangles = len(self.triangle_indices)
-        self.form_factor_array = np.zeros((num_triangles, num_triangles))
 
-        centroids = np.zeros((num_triangles, 3))
-        for i in range(num_triangles):
-            centroids[i] = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
+        if self.ray_trace:
+            rng = rdnadndnnd
+            n_rays = 10
+            self.form_factor_array = form_factors_raytrace(
+                self.vertices, self.triangle_indices, n_rays, rng
+            )
+        else:
+            num_triangles = len(self.triangle_indices)
+            self.form_factor_array = np.zeros((num_triangles, num_triangles))
 
-        centroids_i = centroids[:, np.newaxis, :]
-        centroids_j = centroids[np.newaxis, :, :]
+            centroids = np.zeros((num_triangles, 3))
+            for i in range(num_triangles):
+                centroids[i] = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
 
-        r_vectors = centroids_j - centroids_i
+            centroids_i = centroids[:, np.newaxis, :]
+            centroids_j = centroids[np.newaxis, :, :]
 
-        r_norms = np.linalg.norm(r_vectors, axis=2)
+            r_vectors = centroids_j - centroids_i
 
-        # Create a mask for diagonal elements to avoid division by zero
-        # HJELP AV AI
-        non_diagonal = np.ones((num_triangles, num_triangles), dtype=bool)
-        np.fill_diagonal(non_diagonal, False)
+            r_norms = np.linalg.norm(r_vectors, axis=2)
 
-        # Only process non-diagonal elements
-        i_indices, j_indices = np.where(non_diagonal)
+            # Create a mask for diagonal elements to avoid division by zero
+            # HJELP AV AI
+            non_diagonal = np.ones((num_triangles, num_triangles), dtype=bool)
+            np.fill_diagonal(non_diagonal, False)
 
-        valid_r_vectors = r_vectors[i_indices, j_indices]
-        valid_r_norms = r_norms[i_indices, j_indices]
+            # Only process non-diagonal elements
+            i_indices, j_indices = np.where(non_diagonal)
 
-        # Compute unit direction vectors
-        valid_r_units = valid_r_vectors / valid_r_norms[:, np.newaxis]
+            valid_r_vectors = r_vectors[i_indices, j_indices]
+            valid_r_norms = r_norms[i_indices, j_indices]
 
-        normals_i = self.normal_array[i_indices]
-        dot_ni = np.sum(valid_r_units * normals_i, axis=1)
+            # Compute unit direction vectors
+            valid_r_units = valid_r_vectors / valid_r_norms[:, np.newaxis]
 
-        normals_j = self.normal_array[j_indices]
-        dot_nj = np.sum(-valid_r_units * normals_j, axis=1)
+            normals_i = self.normal_array[i_indices]
+            dot_ni = np.sum(valid_r_units * normals_i, axis=1)
 
-        valid_dots = (dot_ni > 0) & (dot_nj > 0)
+            normals_j = self.normal_array[j_indices]
+            dot_nj = np.sum(-valid_r_units * normals_j, axis=1)
 
-        valid_i = i_indices[valid_dots]
-        valid_j = j_indices[valid_dots]
+            valid_dots = (dot_ni > 0) & (dot_nj > 0)
 
-        final_dot_ni = dot_ni[valid_dots]
-        final_dot_nj = dot_nj[valid_dots]
-        final_r_norms = valid_r_norms[valid_dots]
+            valid_i = i_indices[valid_dots]
+            valid_j = j_indices[valid_dots]
 
-        computed_factors = (
-            self.area_array[valid_j]
-            * (final_dot_ni * final_dot_nj)
-            / (np.pi * final_r_norms**2)
-        )
+            final_dot_ni = dot_ni[valid_dots]
+            final_dot_nj = dot_nj[valid_dots]
+            final_r_norms = valid_r_norms[valid_dots]
 
-        self.form_factor_array[valid_i, valid_j] = computed_factors
+            computed_factors = (
+                self.area_array[valid_j]
+                * (final_dot_ni * final_dot_nj)
+                / (np.pi * final_r_norms**2)
+            )
+
+            self.form_factor_array[valid_i, valid_j] = computed_factors
 
     def find_luminances(self, num_iterations: int) -> np.ndarray:
         """
