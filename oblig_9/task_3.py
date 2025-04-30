@@ -1,14 +1,7 @@
-# Generate n unit vectors with 'Lambertian' distribution
-# from a triangular element
-
-# and n points in the triangle
 from typing import Any
 import numpy as np
 from numpy import random
 from numpy import typing as npt
-
-
-rng = np.random.default_rng(12345)
 
 
 def barycentric_to_cartesian(
@@ -18,12 +11,20 @@ def barycentric_to_cartesian(
     b2: float,
     b3: float,
 ) -> npt.NDArray[np.floating[Any]]:
-    # B2 and B3 are between 0-1
+    # B1 + B2 + B3 = 1
+    # B1 is not needed, can be computed
     px = ((1 - b2 - b3) * vertex0[0]) + b2 * vertex1[0] + b3 * vertex2[0]
     py = ((1 - b2 - b3) * vertex0[1]) + b2 * vertex1[1] + b3 * vertex2[1]
     pz = ((1 - b2 - b3) * vertex0[2]) + b2 * vertex1[2] + b3 * vertex2[2]
 
     return np.array([px, py, pz])
+
+
+def normalize_vector(
+    vector: npt.NDArray[np.floating[Any]],
+) -> npt.NDArray[np.floating[Any]]:
+    length = np.linalg.norm(vector)
+    return vector / length
 
 
 def random_rays(
@@ -33,45 +34,50 @@ def random_rays(
     vertex2: npt.NDArray[np.floating[Any]],
     n_rays: int,
 ) -> tuple[npt.NDArray[np.floating[Any]], npt.NDArray[np.floating[Any]]]:
-    # rng generator; x0,x1,x2 vertices of triangle; n number of rays
-
-    # Normal vectors
     edge1 = vertex1 - vertex0
     edge2 = vertex2 - vertex0
-    normal = np.cross(edge1, edge2)
-    length = np.linalg.norm(normal)
-    normalized = normal / length
+    normal = normalize_vector(np.cross(edge1, edge2))
 
-    # Orthonormal basis for surface, with third component the normal component
+    # Normalize vectors
     edge1_normalized = edge1 / np.linalg.norm(edge1)
-    edge2_normalized = np.cross(normalized, edge1_normalized)
+    # Orthonormal basis for surface, with third component the normal component
+    edge2_normalized = np.cross(normal, edge1_normalized)
 
-    matrix = np.array([edge1_normalized, edge2_normalized, normalized]).T
+    matrix = np.array([edge1_normalized, edge2_normalized, normal]).T
 
     # Generate n_rays random polar and azimuthal angles.
     theta = np.pi * rng.random(size=n_rays) / 2
     phi = 2 * np.pi * rng.random(size=n_rays)
-
     ray_angles = np.array(
         [np.sin(phi) * np.sin(theta), np.cos(phi) * np.sin(theta), np.cos(theta)]
     )
+
     # Transform to 3d coordinates in the standard basis
     ray_vectors = matrix @ ray_angles
 
     # Uniformly distributed random points inside a triangle.
-    barymetric2_array = rng.random(size=n_rays)
-    barymetric3_array = rng.random(size=n_rays)
+    barycentric1_array = rng.random(size=n_rays)
+    barycentric2_array = rng.random(size=n_rays)
+    barycentric3_array = rng.random(size=n_rays)
+
+    # Normalize barycentric coordinates
+    sum_bary = barycentric1_array + barycentric2_array + barycentric3_array
+    barycentric2_array /= sum_bary
+    barycentric3_array /= sum_bary
+
     ray_positions = np.zeros((n_rays, 3))
     for index in range(n_rays):
+        # We only need to use barycentric 2 and 3, one is computed from the others
         random_coord = barycentric_to_cartesian(
             vertex0,
             vertex1,
             vertex2,
-            barymetric2_array[index],
-            barymetric3_array[index],
+            barycentric2_array[index],
+            barycentric3_array[index],
         )
         ray_positions[index] = random_coord
 
+    # Transpose ray vectors to get the shape (n_rays,3)
     return ray_positions, ray_vectors.T
 
 
@@ -81,8 +87,8 @@ def ray_triangle_intersection(
     vertex0: npt.NDArray[np.floating[Any]],
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
-):
-    # Legg til epsilon!?
+    epsilon: float = 1e-10,
+) -> npt.NDArray[np.floating[Any]] | None:
     edge_a = vertex1 - vertex0
     edge_b = vertex2 - vertex0
 
@@ -90,7 +96,7 @@ def ray_triangle_intersection(
     ray_cross_edge_b = np.cross(ray_direction, edge_b)
     det = np.dot(edge_a, ray_cross_edge_b)
 
-    if det == 0.0:
+    if det > -epsilon and det < epsilon:
         return None  # Ray is parallel to the triangle plane
 
     inv_det = 1.0 / det
@@ -99,19 +105,19 @@ def ray_triangle_intersection(
     origin_to_vertex = ray_origin - vertex0
 
     u = inv_det * np.dot(origin_to_vertex, ray_cross_edge_b)
-    if u < 0.0 or u > 1.0:
+    if (u < 0.0 and abs(u) > epsilon) or (u > 1 and abs(u - 1) > epsilon):
         return None
 
     origin_cross_edge_a = np.cross(origin_to_vertex, edge_a)
     v = inv_det * np.dot(ray_direction, origin_cross_edge_a)
 
-    if v < 0.0 or (u + v) > 1.0:
+    if (v < 0.0 and abs(v) > epsilon) or ((u + v) > 1.0 and abs(u + v - 1) > epsilon):
         return None
 
     # Compute t to find out where the intersection point is on the line
     t = inv_det * np.dot(edge_b, origin_cross_edge_a)
 
-    if t < 0.0:
+    if t <= epsilon:
         return None  # Intersection is behind the ray start
 
     # Compute the exact intersection point
@@ -126,11 +132,9 @@ def has_ray_triangle_intersected(
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
 ) -> bool:
-
     intersection = ray_triangle_intersection(
         ray_origin, ray_direction, vertex0, vertex1, vertex2
     )
-
     return intersection is not None
 
 
@@ -148,7 +152,6 @@ def form_factors_raytrace(
         v2_i = vertices[ray_index_i[2]]
         # generate n rays from random points x in element i, in random directions r
         ray_positions, ray_vectors = random_rays(rng, v0_i, v1_i, v2_i, n_rays)
-
         # find out which element (if any) each ray hits
         for ray_idx in range(n_rays):
             ray_origin = ray_positions[ray_idx]
@@ -157,7 +160,6 @@ def form_factors_raytrace(
             for j, ray_index_j in enumerate(triangles_indices):
                 if i == j:  # Skip self-intersection
                     continue
-
                 # Get vertices of element j
                 v0_j = vertices[ray_index_j[0]]
                 v1_j = vertices[ray_index_j[1]]
@@ -166,7 +168,6 @@ def form_factors_raytrace(
                 intersection = has_ray_triangle_intersected(
                     ray_origin, ray_direction, v0_j, v1_j, v2_j
                 )
-
                 if intersection:
                     # add 1/n to F[i,j] for each ray from i hitting j
                     form_factor[i, j] += 1.0 / n_rays
