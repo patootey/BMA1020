@@ -1,105 +1,96 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 rng = np.random.default_rng(12345)
 
 
-def midpoint_2d_no_extra(A, i, j, square_size: float, rand_scale) -> None:
-    size = 2**square_size
+def midpoint_2d(heightmap: np.ndarray, i: int, j: int, grid_n: int, rand_scale: float):
+    # Calculate the index of the last element in the square
+    last_index = 2**grid_n
 
-    if square_size < 1:
-        return A[i : i + 1, j : j + 1]
-
-    half = size // 2
-
-    # DIAMOND STEP
-    # Calculate midpoint of the square
-    mid_i = i + half
-    mid_j = j + half
-
-    # Set midpoint as average
-    corners = [
-        A[i, j],
-        A[i, j + size],
-        A[i + size, j],
-        A[i + size, j + size],
-    ]
-    A[mid_i, mid_j] = (np.sum(corners)) / 4 + rand_scale * size * (rng.random() - 0.5)
-
-    # ALSO MIDPOINT
-    # MISSING
-    # numpy average
-    A[i, mid_j] = (corners[0] + corners[1]) / 2.0 + rand_scale * size * (
-        rng.random() - 0.5
-    )
-    A[i + size, mid_j] = (corners[2] + corners[3]) / 2.0 + rand_scale * size * (
-        rng.random() - 0.5
-    )
-    A[mid_i, j] = (corners[0] + corners[2]) / 2.0 + rand_scale * size * (
-        rng.random() - 0.5
-    )
-    A[mid_i, j + size] = (corners[1] + corners[3]) / 2.0 + rand_scale * size * (
-        rng.random() - 0.5
-    )
-
-    # Recursively apply to the four squares
-    if square_size > 1:
-        midpoint_2d(A, i, j, square_size - 1, rand_scale)  # Top-left
-        midpoint_2d(A, i, j + half, square_size - 1, rand_scale)  # Top-right
-        midpoint_2d(A, i + half, j, square_size - 1, rand_scale)  # Bottom-left
-        midpoint_2d(A, i + half, j + half, square_size - 1, rand_scale)  # Bottom-right
-
-    return A[i : i + size + 1, j : j + size + 1]
-
-
-def midpoint_2d(heightmap, i, j, square_size: float, rand_scale) -> None:
-    # Calculate the side length between points in current square
-    size = 2**square_size
-
-    if square_size < 1:
-        return heightmap[i : i + size + 1, j : j + size + 1]
-
-    half = size // 2
-
-    # DIAMOND STEP
-    # Calculate midpoint of the square
-    mid_i = i + half
-    mid_j = j + half
-
+    # Get original corner values
     top_left = heightmap[i, j]
-    top_right = heightmap[i, j + size]
-    bottom_left = heightmap[i + size, j]
-    bottom_right = heightmap[i + size, j + size]
+    top_right = heightmap[i, j + last_index]
+    bottom_left = heightmap[i + last_index, j]
+    bottom_right = heightmap[i + last_index, j + last_index]
+
+    if last_index + 1 == heightmap.shape[0]:
+        # Fill with nan values, because to be able to determine if a value is already set
+        heightmap[:, :] = np.nan
+        # Rewrite corners
+        heightmap[i, j] = top_left
+        heightmap[i, j + last_index] = top_right
+        heightmap[i + last_index, j] = bottom_left
+        heightmap[i + last_index, j + last_index] = bottom_right
+
+    if grid_n < 1:
+        return
+
+    half = last_index // 2
+
+    # Calculate midpoint of the square
+    center_i = i + half
+    center_j = j + half
+
     corners = np.array([top_left, top_right, bottom_left, bottom_right])
+    # Calculate average
+    mid = np.mean(corners) + rand_scale * (rng.random() - 0.5)
+    heightmap[center_i, center_j] = mid
 
-    heightmap[mid_i, mid_j] = np.mean(corners) + rand_scale * size * (
-        rng.random() - 0.5
-    )
-
-    # skal jeg ha med mid?
-    # Top side
-    heightmap[i, mid_j] = np.mean(
-        [top_left, top_right, heightmap[mid_i, mid_j]]
-    ) + rand_scale * size * (rng.random() - 0.5)
-    # Right side
-    heightmap[mid_i, j + size] = np.mean(
-        [top_right, bottom_right, heightmap[mid_i, mid_j]]
-    ) + rand_scale * size * (rng.random() - 0.5)
-    # Bottom side
-    heightmap[i + size, mid_j] = np.mean(
-        [bottom_left, bottom_right, heightmap[mid_i, mid_j]]
-    ) + rand_scale * size * (rng.random() - 0.5)
+    # Only fill in sides if they are empty
     # Left side
-    heightmap[mid_i, j] = np.mean(
-        [top_left, bottom_left, heightmap[mid_i, mid_j]]
-    ) + rand_scale * size * (rng.random() - 0.5)
+    if np.isnan(heightmap[center_i, j]):
+        heightmap[center_i, j] = np.mean([top_left, top_right, mid]) + rand_scale * (
+            rng.random() - 0.5
+        )
+    # Bottom side
+    if np.isnan(heightmap[i + last_index, center_j]):
+        heightmap[i + last_index, center_j] = np.mean(
+            [top_right, bottom_right, mid]
+        ) + rand_scale * (rng.random() - 0.5)
+    # Right side
+    if np.isnan(heightmap[center_i, j + last_index]):
+        heightmap[center_i, j + last_index] = np.mean(
+            [bottom_left, bottom_right, mid]
+        ) + rand_scale * (rng.random() - 0.5)
+    # Top side
+    if np.isnan(heightmap[i, center_j]):
+        heightmap[i, center_j] = np.mean([top_left, bottom_left, mid]) + rand_scale * (
+            rng.random() - 0.5
+        )
 
-    # Recursively apply to the four squares
-    if square_size > 1:
-        midpoint_2d(heightmap, i, j, square_size - 1, rand_scale)  # Top-left
-        midpoint_2d(heightmap, i, j + half, square_size - 1, rand_scale)  # Top-right
-        midpoint_2d(heightmap, i + half, j, square_size - 1, rand_scale)  # Bottom-left
+    # Recursively apply to the four quadrants
+    if grid_n > 1:
+        # Decrease scale for lower levels
+        rand_scale_max = max(rand_scale * 0.6, 0.1)
+        midpoint_2d(heightmap, i, j, (grid_n - 1), rand_scale_max)  # Top-left
+        midpoint_2d(heightmap, i, j + half, (grid_n - 1), rand_scale_max)  # Top-right
+        midpoint_2d(heightmap, i + half, j, (grid_n - 1), rand_scale_max)  # Bottom-left
         midpoint_2d(
-            heightmap, i + half, j + half, square_size - 1, rand_scale
+            heightmap, i + half, j + half, (grid_n - 1), rand_scale_max
         )  # Bottom-right
+    return
 
-    return heightmap[i : i + size + 1, j : j + size + 1]
+
+# Test code that shows that the algorithm works
+n = 6  # Creates a (2^6 + 1) x (2^6 + 1) = 65x65 grid
+size = 2**n + 1
+
+# Initialize array with zeros
+terrain = np.zeros((size, size))
+
+# Set the corner values (you can experiment with different values)
+terrain[0, 0] = 0.1
+terrain[0, size - 1] = 0.2
+terrain[size - 1, 0] = 0.8
+terrain[size - 1, size - 1] = 0.3
+
+# Apply the midpoint displacement algorithm
+midpoint_2d(terrain, 0, 0, n, rand_scale=1.0)
+
+# Create a simple 2D plot with matplotlib
+plt.figure(figsize=(10, 8))
+plt.imshow(terrain, cmap="terrain")
+plt.colorbar(label="Elevation")
+plt.title("Terrain Generated with Diamond-Square Algorithm")
+plt.show()
