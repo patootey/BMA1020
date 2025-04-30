@@ -4,27 +4,28 @@ from task_1 import midpoint_2d
 
 import matplotlib.pyplot as plt
 
-rng = np.random.default_rng(12345)
+# rng = np.random.default_rng(12345)
 
-# Example usage
 n = 6  # Creates a (2^6 + 1) x (2^6 + 1) = 65x65 grid
 size = 2**n + 1
 
 # Initialize array with zeros
+# terrain = np.full((size, size), np.nan)
 terrain = np.zeros((size, size))
 
+
 # Set the corner values (you can experiment with different values)
-terrain[0, 0] = 0
-terrain[0, size - 1] = 0
-terrain[size - 1, 0] = 0
-terrain[size - 1, size - 1] = 0
+terrain[0, 0] = 0.1
+terrain[0, size - 1] = 0.2
+terrain[size - 1, 0] = 0.8
+terrain[size - 1, size - 1] = 0.3
 
 # Apply the midpoint displacement algorithm
 midpoint_2d(terrain, 0, 0, n, rand_scale=1.0)
 
 # Create a simple 2D plot with matplotlib
 plt.figure(figsize=(10, 8))
-plt.imshow(terrain, cmap="terrain")
+plt.imshow(terrain, cmap="grey")
 plt.colorbar(label="Elevation")
 plt.title("Terrain Generated with Diamond-Square Algorithm")
 plt.show()

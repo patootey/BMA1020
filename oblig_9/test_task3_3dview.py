@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from task_3 import form_factors_raytrace, random_rays
+# from task_3 import form_factors_raytrace, random_rays
+from task_3 import form_factors_raytrace, random_rays, ray_triangle_intersection
 
 # TROR DETTE ER FEIL, KAN VI SETTE OPP EGEN TEST PAPPA?
 
@@ -89,6 +90,26 @@ for i in range(2):  # Only from the first two triangles
             "r-",
             alpha=0.1,
         )
+
+        ax.plot(
+            origin[0],
+            origin[1],
+            origin[2],
+            "r+",
+        )
+
+        for k in range(2):
+            hit_el = elements[k + 2]
+            intersect_point = ray_triangle_intersection(
+                origin, direction, nodes[hit_el[0]], nodes[hit_el[1]], nodes[hit_el[2]]
+            )
+            if intersect_point is not None:
+                ax.plot(
+                    intersect_point[0],
+                    intersect_point[1],
+                    intersect_point[2],
+                    "*",
+                )
 
 ax.set_xlabel("X")
 ax.set_ylabel("Y")
