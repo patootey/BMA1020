@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 
 # choose your own values:
 width = 600
@@ -20,19 +19,14 @@ x_grid, y_grid = np.meshgrid(
 
 cell_width = width // (grid_x_size - 1)
 cell_height = height // (grid_y_size - 1)
-# Remember rng, the random number generator from the first question?
+
 # Use rng to generate an (m x n) array of 2d unit vectors, i.e. a (2 x m x n) array
-# such that np.sum(vectors ** 2, axis=0) is an array of ones
-
-# Use rng to generate an (m x n) array of 2d unit vectors
-
-# Got from Caroline
 angles = 2 * np.pi * rng.random((grid_x_size, grid_y_size))
 vectors = np.array([np.cos(angles), np.sin(angles)])
 
 
 # Found on web
-def easeCurve(t):  # to smooth the noise (f(t) from PDF)
+def easeCurve(t):
     return 3 * t**2 - 2 * t**3
 
 
@@ -80,23 +74,3 @@ def noise(x, y, x_grid, y_grid, vectors: np.ndarray):
 
     noise = lerp(d_lower, d_upper, smoothty)
     return noise
-
-
-def generate_noise_image(width, height, x_grid, y_grid, vectors, scale=1.0):
-    """Generate a 2D image of Perlin noise"""
-    img = np.zeros((height, width))
-    for y in range(height):
-        for x in range(width):
-            img[y, x] = noise(x * scale, y * scale, x_grid, y_grid, vectors)
-
-    # Normalize to [0, 1] for display
-    img = (img - np.min(img)) / (np.max(img) - np.min(img))
-    return img
-
-
-noise_img = generate_noise_image(width, height, x_grid, y_grid, vectors, scale=1.0)
-plt.figure(figsize=(10, 8))
-plt.imshow(noise_img, cmap="gray")
-plt.title("Perlin Noise")
-plt.colorbar()
-plt.show()

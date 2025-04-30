@@ -34,33 +34,30 @@ def random_rays(
     n_rays: int,
 ) -> tuple[npt.NDArray[np.floating[Any]], npt.NDArray[np.floating[Any]]]:
     # rng generator; x0,x1,x2 vertices of triangle; n number of rays
-    # first find the normal vectors
+
+    # Normal vectors
     edge1 = vertex1 - vertex0
     edge2 = vertex2 - vertex0
     normal = np.cross(edge1, edge2)
     length = np.linalg.norm(normal)
     normalized = normal / length
 
-    # now an orthonormal basis for surface, with third component the normal component
+    # Orthonormal basis for surface, with third component the normal component
     edge1_normalized = edge1 / np.linalg.norm(edge1)
     edge2_normalized = np.cross(normalized, edge1_normalized)
 
     matrix = np.array([edge1_normalized, edge2_normalized, normalized]).T
 
-    # generate n random polar and azimuthal angles
-    # https://en.wikipedia.org/wiki/Lambertian_reflectance
+    # Generate n_rays random polar and azimuthal angles.
     theta = np.pi * rng.random(size=n_rays) / 2
     phi = 2 * np.pi * rng.random(size=n_rays)
 
     ray_angles = np.array(
         [np.sin(phi) * np.sin(theta), np.cos(phi) * np.sin(theta), np.cos(theta)]
     )
-    # transform to 3d coordinates in the standard basis
+    # Transform to 3d coordinates in the standard basis
     ray_vectors = matrix @ ray_angles
-    # Now generate n points inside the triangle
-    # this bit you can do yourself!
 
-    # barycentric coordiantes for random??
     # Uniformly distributed random points inside a triangle.
     barymetric2_array = rng.random(size=n_rays)
     barymetric3_array = rng.random(size=n_rays)
@@ -85,20 +82,18 @@ def ray_triangle_intersection(
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
 ):
-    # Legg til epsilon!
-
-    # https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
+    # Legg til epsilon!?
     edge_a = vertex1 - vertex0
     edge_b = vertex2 - vertex0
 
     # Calculate determinant
     ray_cross_edge_b = np.cross(ray_direction, edge_b)
-    determinant = np.dot(edge_a, ray_cross_edge_b)
+    det = np.dot(edge_a, ray_cross_edge_b)
 
-    if determinant == 0.0:
+    if det == 0.0:
         return None  # Ray is parallel to the triangle plane
 
-    inv_det = 1.0 / determinant
+    inv_det = 1.0 / det
 
     # Calculate distance from vertex0 to ray origin
     origin_to_vertex = ray_origin - vertex0
@@ -113,6 +108,7 @@ def ray_triangle_intersection(
     if v < 0.0 or (u + v) > 1.0:
         return None
 
+    # Compute t to find out where the intersection point is on the line
     t = inv_det * np.dot(edge_b, origin_cross_edge_a)
 
     if t < 0.0:
@@ -120,7 +116,6 @@ def ray_triangle_intersection(
 
     # Compute the exact intersection point
     intersection_point = ray_origin + t * ray_direction
-    # kan vel egt bare heller retunere True og false? Skal jeg bruke punktet til noe?
     return intersection_point
 
 
