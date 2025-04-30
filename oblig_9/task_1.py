@@ -76,9 +76,10 @@ def midpoint_2d(heightmap, i, j, square_size: float, rand_scale) -> None:
     )
 
     # skal jeg ha med mid?
-    heightmap[i, mid_j] = np.mean([top_left, top_right]) + rand_scale * size * (
-        rng.random() - 0.5
-    )
+    # Top side
+    heightmap[i, mid_j] = np.mean(
+        [top_left, top_right, heightmap[mid_i, mid_j]]
+    ) + rand_scale * size * (rng.random() - 0.5)
     # Right side
     heightmap[mid_i, j + size] = np.mean(
         [top_right, bottom_right, heightmap[mid_i, mid_j]]
