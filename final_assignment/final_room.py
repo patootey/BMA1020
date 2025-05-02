@@ -18,14 +18,9 @@ Debug:
 
 from contextlib import contextmanager
 from datetime import datetime
-from global_functions import (
-    distance_point_to_plane,
-    line_intersect_plane,
-    vector_normalize,
-    array_distance_to_plane,
-    midpoint_2d,
-    form_factors_raytrace,
-)
+from global_functions import array_triangle_clip_against_plane, array_project_screen
+from midpoint import midpoint_2d
+from ray_tracing import form_factors_raytrace
 import numpy as np
 import pyglet
 from pyglet.graphics import Batch
@@ -33,7 +28,8 @@ from pyglet.window import key, Window
 from pyglet.shapes import Line, Triangle
 from quaternions import Quaternion
 from rgb_converting import LMS_to_RGB
-
+import perlin
+from pyglet.gl import GLubyte
 
 # Global variables
 g_window_width = 800
@@ -45,93 +41,38 @@ g_window.push_handlers(g_keys)
 
 FRAME_TIME: float = 1 / 60
 
-# Debug colors
-PINK = [255, 0, 128]
-WHITE = [255, 255, 255]
-GREY = [200, 200, 200]
-
-
-def lerp(a, b, t):
-    # Linear interpolation
-    return a * (1 - t) + b * t
-
 
 class PerlinNoise:
     def __init__(
-        self,
-        width: int = 400,
-        height: int = 300,
-        grid_x_size: int = 11,
-        grid_y_size: int = 9,
-        seed=12345,
+        self, width: int, height: int, grid_size: tuple[int, int] | None = None
     ):
         self.width = width
         self.height = height
-        self.grid_x_size = grid_x_size
-        self.grid_y_size = grid_y_size
-        self.rng = np.random.default_rng(seed)
+        self.noise = perlin.noise(self.width, self.height, grid_size)
 
-        self.cell_width = width // (grid_x_size - 1)
-        self.cell_height = height // (grid_y_size - 1)
+    def to_sprite(self, alpha: int = 50):
+        color_channel = self.noise * 255
 
-        # Create grid
-        self.x_grid, self.y_grid = np.meshgrid(
-            np.linspace(0, width, grid_x_size), np.linspace(0, height, grid_y_size)
+        # Generate an alpha channel
+        alpha_channel = alpha * np.ones((self.height, self.width))
+
+        # this makes the noise greyscale (sets RGB to be the same) and adds the alpha channel
+        greyscale = np.dstack(
+            [color_channel, color_channel, color_channel, alpha_channel]
+        ).astype(np.uint32)
+
+        greyscale = greyscale.reshape(self.height * self.width * 4)
+
+        # convert the bitmap to a form pyglet can read
+        byte_data = bytes((GLubyte * greyscale.size)(*greyscale.astype("uint8")))
+
+        # create an image of the noise
+        img = pyglet.image.ImageData(
+            self.width, self.height, "RGBA", byte_data, pitch=self.width * 4
         )
 
-        # Generate random gradient vectors
-        self.angles = 2 * np.pi * self.rng.random((grid_x_size, grid_y_size))
-        self.vectors = np.array([np.cos(self.angles), np.sin(self.angles)])
-
-    def easeCurve(self, t):
-        # Perlins ease curve
-        return t * t * t * (t * (t * 6 - 15) + 10)
-
-    def noise2(self, x: float, y: float):
-        # Define i and j
-        i = np.clip(int(x / self.cell_width), 0, self.grid_x_size - 2)
-        j = np.clip(int(y / self.cell_height), 0, self.grid_y_size - 2)
-
-        # Get corner coordinates
-        # bl = bottom left, br = bottom right, tl = top left, tr = top right
-        x_bl = self.x_grid[j, i]
-        y_bl = self.y_grid[j, i]
-        x_br = self.x_grid[j, i + 1]
-        y_br = self.y_grid[j, i + 1]
-        x_tl = self.x_grid[j + 1, i]
-        y_tl = self.y_grid[j + 1, i]
-        x_tr = self.x_grid[j + 1, i + 1]
-        y_tr = self.y_grid[j + 1, i + 1]
-
-        # Calculate relative position within cell
-        tx = (x - x_bl) / (x_br - x_bl)
-        ty = (y - y_bl) / (y_tl - y_bl)
-
-        # Apply easing function for smoother transitions
-        smoothtx = self.easeCurve(tx)
-        smoothty = self.easeCurve(ty)
-
-        # Get gradient vectors at grid corners
-        v_bl = self.vectors[:, i, j]
-        v_br = self.vectors[:, i + 1, j]
-        v_tl = self.vectors[:, i, j + 1]
-        v_tr = self.vectors[:, i + 1, j + 1]
-
-        # Compute dot products between gradient and distance vectors
-        s_bl = np.dot(v_bl, [x - x_bl, y - y_bl])
-        s_br = np.dot(v_br, [x - x_br, y - y_br])
-        s_tl = np.dot(v_tl, [x - x_tl, y - y_tl])
-        s_tr = np.dot(v_tr, [x - x_tr, y - y_tr])
-
-        # Interpolate between dot products
-        d_lower = lerp(s_bl, s_br, smoothtx)
-        d_upper = lerp(s_tl, s_tr, smoothtx)
-
-        # Final interpolation
-        noise_value = lerp(d_lower, d_upper, smoothty)
-
-        # Normalize to 0-1 range
-        return (noise_value + 1) / 2
+        # set the noise into a sprite for displaying in the pyglet application
+        return pyglet.sprite.Sprite(img=img)
 
 
 class Ray_tracing_model_3d:
@@ -324,242 +265,6 @@ class Ray_tracing_model_3d:
         for i in range(len(self.temporary_vertices)):
             self.temporary_vertices[i] = self.temporary_vertices[i] + vector
 
-    def array_project(
-        self, vertices: np.ndarray, window_width: int, window_height: int
-    ) -> np.ndarray:
-        """
-        Project the vertex onto the camera plane and returns it.
-
-        :param vertex: The vertex to project.
-        :param window_width: Window width.
-        :param window_heigth: Window heigth.
-        :return: Transformed vertex.
-        """
-        # This type of projection I got from watching Youtube videos about 3D projecting and clipping
-        aspectratio = window_height / window_width
-        # Inverse tan based on FOV
-        f_rad = 1 / np.tan(np.radians(self.fov) / 2)
-        q = (self.far) / (self.far - self.near)
-
-        w_array = np.full(len(vertices), 1)[:, np.newaxis]
-
-        homogeneous_vertices = np.hstack([vertices, w_array])
-
-        homogeneous_matrix = np.array(
-            [
-                [aspectratio * f_rad, 0, 0, 0],
-                [0, f_rad, 0, 0],
-                [0, 0, q, (-self.near * q)],
-                [0, 0, 1, 0],
-            ]
-        )
-
-        new_vertices = homogeneous_vertices @ homogeneous_matrix.T
-
-        new_vertices = new_vertices / new_vertices[:, np.newaxis, 3]
-
-        return new_vertices[:, 0:3]
-
-    def array_triangle_clip_against_plane(
-        self,
-        plane_p: np.ndarray,
-        plane_n: np.ndarray,
-        vertices: np.ndarray,
-        triangles: np.ndarray,
-        colors: np.ndarray,
-    ):
-
-        distances = array_distance_to_plane(plane_p, plane_n, vertices)
-        list_verticies = []
-        list_colors = []
-        list_indices = []
-        vertex_count = 0
-
-        for triangle_index, triangle in enumerate(triangles):
-            index1, index2, index3 = triangle
-            vertex1 = vertices[index1]
-            vertex2 = vertices[index2]
-            vertex3 = vertices[index3]
-
-            distance1: float = distances[index1]  # type: ignore
-            distance2: float = distances[index2]  # type: ignore
-            distance3: float = distances[index3]  # type: ignore
-
-            clip_verticies, clip_indices, clip_colors = (
-                self.triangle_clip_against_plane(
-                    plane_p,
-                    plane_n,
-                    vertex1,
-                    vertex2,
-                    vertex3,
-                    distance1,
-                    distance2,
-                    distance3,
-                    colors[triangle_index],
-                )
-            )
-
-            list_indices.append(clip_indices + vertex_count)
-            vertex_count += len(clip_verticies)
-            list_verticies.append(clip_verticies)
-            list_colors.append(clip_colors)
-
-        new_indices = np.vstack(list_indices)
-        new_verticies = np.vstack(list_verticies)
-        new_colors = np.vstack(list_colors)
-
-        return new_indices, new_verticies, new_colors
-
-    def triangle_clip_against_plane(
-        self,
-        plane_p: np.ndarray,
-        plane_n: np.ndarray,
-        vertex_1: np.ndarray,
-        vertex_2: np.ndarray,
-        vertex_3: np.ndarray,
-        distance_1: float,
-        distance_2: float,
-        distance_3: float,
-        color: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Clipping the triangle against the plane.
-        Returns a list of new triangles that are clipped.
-
-        :param plane_n: The normal of the plane.
-        :param plane_p: The position of the plane.
-        :param vertex_1: The first vertex.
-        :param vertex_2: The second vertex.
-        :param vertex_3: The third vertex.
-        """
-
-        # Make sure the plane is normal
-        plane_n = vector_normalize(plane_n)
-
-        # Lists to keep which triangle is outside/inside
-        inside: list[np.ndarray] = []
-        outside: list[np.ndarray] = []
-
-        # Get distance for each vertex in triangle to plane
-        distance_1 = distance_point_to_plane(plane_n, plane_p, vertex_1)
-        distance_2 = distance_point_to_plane(plane_n, plane_p, vertex_2)
-        distance_3 = distance_point_to_plane(plane_n, plane_p, vertex_3)
-
-        # Adding the different vertices accordingly to if it is inside or outside the plane
-        if distance_1 >= 0:
-            inside.append(vertex_1)
-        else:
-            outside.append(vertex_1)
-        if distance_2 >= 0:
-            inside.append(vertex_2)
-        else:
-            outside.append(vertex_2)
-        if distance_3 >= 0:
-            inside.append(vertex_3)
-        else:
-            outside.append(vertex_3)
-
-        # Clipping depending on which vertices are outside/inside
-        if len(inside) == 0:
-            # All the vertices are outside
-            return (
-                np.empty((0, 3)),
-                np.empty((0, 3), dtype=int),
-                np.empty((0, 3), dtype=int),
-            )
-
-        if len(inside) == 3:
-            # All the vertices are inside
-            # Index will be filled in by the caller
-            return (
-                np.array([vertex_1, vertex_2, vertex_3]),
-                np.array([[0, 1, 2]]),
-                np.array([color], dtype=int),
-            )
-
-        if len(inside) == 2 and len(outside) == 1:
-            # Two vertices inside and one outside
-
-            # Calculate intersect vertex1 clockwise
-            intersect_vertex_1 = line_intersect_plane(
-                plane_p, plane_n, inside[0], outside[0]
-            )
-            # Calculate intersect vertex2 clockwise
-            intersect_vertex_2 = line_intersect_plane(
-                plane_p, plane_n, inside[1], outside[0]
-            )
-
-            # Parallel with the plane
-            if intersect_vertex_1 is None or intersect_vertex_2 is None:
-                return (
-                    np.empty((0, 3)),
-                    np.empty((0, 3), dtype=int),
-                    np.empty((0, 3), dtype=int),
-                )
-
-            return (
-                np.array(
-                    [inside[0], inside[1], intersect_vertex_1, intersect_vertex_2]
-                ),
-                np.array([[0, 1, 2], [1, 3, 2]]),
-                np.array(
-                    [
-                        np.array(PINK if self.clip_debug else color),
-                        np.array(WHITE if self.clip_debug else color),
-                    ]
-                ),
-            )
-
-        if len(inside) == 1 and len(outside) == 2:
-            # One vertices inside and two outside
-
-            # Calculate intersect vertex1 clockwise
-            intersect_vertex_1 = line_intersect_plane(
-                plane_p, plane_n, inside[0], outside[0]
-            )
-            # Calculate intersect vertex2 clockwise
-            intersect_vertex_2 = line_intersect_plane(
-                plane_p, plane_n, inside[0], outside[1]
-            )
-
-            # Parallel with the plane
-            if intersect_vertex_1 is None or intersect_vertex_2 is None:
-                return (
-                    np.empty((0, 3)),
-                    np.empty((0, 3), dtype=int),
-                    np.empty((0, 3), dtype=int),
-                )
-            return (
-                np.array([inside[0], intersect_vertex_2, intersect_vertex_1]),
-                np.array([[0, 1, 2]]),
-                np.array([np.array(GREY if self.clip_debug else color)]),
-            )
-        # This should never occur
-        raise Exception("Something very wrong has happend")
-
-    def array_project_screen(
-        self,
-        vertices: np.ndarray,
-        window_width: int,
-        window_height: int,
-    ):
-
-        half_width = window_width / 2
-        half_height = window_height / 2
-
-        # Projecting all the vertices to the camera plane
-        projected = self.array_project(vertices, window_width, window_height)
-
-        # Centering for viewport adjustments
-        center = np.array([1, 1, 0])
-        projected += center
-
-        # Scale into view
-        scale = np.array([half_width, half_height, 1])
-        projected *= scale
-
-        return projected
-
     def build_triangle(
         self,
         vertex1: np.ndarray,
@@ -649,22 +354,41 @@ class Ray_tracing_model_3d:
         """
         # Originally named: draw
         # Draw the model to the screen
-        new_indices, new_vertices, new_colors = self.array_triangle_clip_against_plane(
+        new_indices, new_vertices, new_colors = array_triangle_clip_against_plane(
             plane_p=np.array([0, 0, 0.1]),
             plane_n=np.array([0, 0, 1]),
             vertices=self.temporary_vertices,
             triangles=self.triangle_indices,
             colors=self.colors,
+            clip_debug=self.clip_debug,
         )
 
-        projected_vertices = self.array_project_screen(
+        projected_vertices = array_project_screen(
             vertices=new_vertices,
             window_width=window_width,
             window_height=window_height,
+            far=self.far,
+            near=self.near,
+            fov=self.fov,
         )
 
-        # Rebuild the triangles for each edge
+        # works, but has some problems with z values that are closest
+        z_values = np.full(len(new_indices), np.nan)
         for triangle_index in range(len(new_indices)):
+            triangle = new_indices[triangle_index]
+
+            triangle1_z = new_vertices[triangle[0], 2]
+            triangle2_z = new_vertices[triangle[1], 2]
+            triangle3_z = new_vertices[triangle[2], 2]
+
+            triangle_z = np.mean([triangle1_z, triangle2_z, triangle3_z])
+
+            z_values[triangle_index] = triangle_z
+
+        sorted_indices = np.argsort(z_values)[::-1]
+
+        # Rebuild the triangles for each edge
+        for triangle_index in sorted_indices:
             color = new_colors[triangle_index]
             triangle_array: np.ndarray = new_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
@@ -1000,6 +724,18 @@ def measure_duration(text: str, is_active: bool):
 
 
 def main() -> None:
+
+    # @g_window.event
+    # def on_draw() -> None:
+    #     g_window.clear()
+    #     # cube.batch.draw()
+    #     sprite.draw()
+
+    #     # if show_triangle_count:
+    #     #     triangle_count_label.draw()
+
+    # pyglet.app.run()
+    # return
     cube = Ray_tracing_model_3d(
         vertices=np.empty((0, 3)),
         triangle_indices=np.empty((0, 3), dtype=int),
@@ -1196,29 +932,57 @@ def main() -> None:
         print("Calculating light luminances...")
         cube.colors = cube.find_colors(num_iterations=25)
 
-    # se over charles kode
-    noise_class = PerlinNoise(width=g_window_width, height=g_window_height)
-
-    noise_values = np.zeros((g_window_height, g_window_width))
-    for y in range(g_window_height):
-        for x in range(g_window_width):
-            noise_values[y, x] = noise_class.noise2(x, y)
-
-    # values from [0,1] to [0,255]
-    noise_rgba = np.zeros((g_window_height, g_window_width, 4), dtype=np.uint8)
-    noise_rgba[:, :, 0] = noise_rgba[:, :, 1] = noise_rgba[:, :, 2] = (
-        noise_values * 255
-    ).astype(np.uint8)
-    # transperancy
-    noise_rgba[:, :, 3] = 20
-
-    noise_data = noise_rgba.flatten().tobytes()
-
-    noise = pyglet.image.ImageData(
-        g_window_width, g_window_height, "RGBA", noise_data, pitch=g_window_width * 4
+    noise = PerlinNoise(
+        width=g_window_width,
+        height=g_window_height,
     )
 
-    sprite = pyglet.sprite.Sprite(img=noise)
+    sprite = noise.to_sprite()
+
+    # se over charles kode
+    # noise_class = PerlinNoise(width=g_window_width, height=g_window_height).noise2()
+
+    # noise_values = np.zeros((g_window_height, g_window_width))
+    # for y in range(g_window_height):
+    #     for x in range(g_window_width):
+    #         noise_values[y, x] = noise_class.noise2(x, y)
+
+    # # values from [0,1] to [0,255]
+    # noise_rgba = np.zeros((g_window_height, g_window_width, 4), dtype=np.uint8)
+    # noise_rgba[:, :, 0] = noise_rgba[:, :, 1] = noise_rgba[:, :, 2] = (
+    #     noise_values * 255
+    # ).astype(np.uint8)
+    # # transperancy
+    # noise_rgba[:, :, 3] = 20
+
+    # noise_data = noise_rgba.flatten().tobytes()
+
+    # noise = pyglet.image.ImageData(
+    #     g_window_width, g_window_height, "RGBA", noise_data, pitch=g_window_width * 4
+    # )
+
+    # sprite = pyglet.sprite.Sprite(img=noise)
+
+    # # generate an alpha channel, i.e. a transparency
+    # # you can play around with the value
+    # A = 50 * np.ones((width, height))
+
+    # # this makes the noise greyscale (sets RGB to be the same) and adds the alpha channel
+    # Z = np.dstack([Z, Z, Z, A]).astype(np.uint32)
+
+    # # you may need to take Z.T here, depending on how you ordered the output
+    # # Z = Z.T
+
+    # Z = Z.reshape(height * width * 4)
+
+    # # convert the bitmap to a form pyglet can read
+    # Zn_data = (GLubyte * Z.size)(*Z.astype("uint8"))
+
+    # # create an image of the noise
+    # Noise = pyglet.image.ImageData(width, height, "RGBA", Zn_data, pitch=width * 3)
+
+    # # set the noise into a sprite for displaying in the pyglet application
+    # sprite = pyglet.sprite.Sprite(img=Noise)
 
     show_duration = False
     show_triangle_count = False
