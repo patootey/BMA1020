@@ -2,10 +2,14 @@ land = (
     lambda x, y: x and y
 )  # x and y are logicals (i.e. not lists of logicals; we want you to treat this in the code further below.)
 
+
+# more to IT
 lxor = lambda x, y: (x or y) and not (
     x and y
 )  # fill in (such that the output is an exclusive or)
 
+
+# DO MORE
 lnot = lambda x: not x  # fill in (such that the output is "logical not")
 
 # PART 1
@@ -70,7 +74,9 @@ class uint8:
     def integer(cls, n):  # 10 points
         # make an 8-bit integer from the python integer n
         # i.e. this should convert decimal to binary
-        # https://www.geeksforgeeks.org/program-decimal-binary-conversion/
+        # https://www.geeksforgeeks.org/program-decimal-binary-conversion/'
+
+        # rahter interger to bit instead
         bits = []
 
         for _ in range(8):
@@ -120,6 +126,8 @@ class int8(uint8):
     @classmethod
     def integer(cls, n):  # 7 points
         # fill in
+
+        # handle neg, set to 1, invert
         pass
 
 
