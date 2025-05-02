@@ -12,58 +12,120 @@ from numba import njit
 
 
 # NEED TO CHANGE np.random.rand()
-def midpoint_2d(heightmap, i, j, square_size: float, rand_scale):
+
+
+def midpoint_2d(
+    heightmap: np.ndarray,
+    i: int,
+    j: int,
+    grid_n: int,
+    rand_scale: float,
+    terrain_roughness: float = 1.0,
+):
     rng = np.random.default_rng(12345)
+    # Calculate the index of the last element in the square
+    last_index = 2**grid_n
 
-    # Calculate the side length between points in current square
-    size = 2**square_size
-
-    if square_size < 1:
-        return heightmap[i : i + size + 1, j : j + size + 1]
-
-    half = size // 2
-
-    # DIAMOND STEP
-    # Calculate midpoint of the square
-    mid_i = i + half
-    mid_j = j + half
-
+    # Get original corner values
     top_left = heightmap[i, j]
-    top_right = heightmap[i, j + size]
-    bottom_left = heightmap[i + size, j]
-    bottom_right = heightmap[i + size, j + size]
+    top_right = heightmap[i, j + last_index]
+    bottom_left = heightmap[i + last_index, j]
+    bottom_right = heightmap[i + last_index, j + last_index]
+
+    if last_index + 1 == heightmap.shape[0]:
+        # Fill with nan values, because to be able to determine if a value is already set
+        heightmap[:, :] = np.nan
+        # Rewrite corners
+        heightmap[i, j] = top_left
+        heightmap[i, j + last_index] = top_right
+        heightmap[i + last_index, j] = bottom_left
+        heightmap[i + last_index, j + last_index] = bottom_right
+
+    if grid_n < 1:
+        return
+
+    half = last_index // 2
+
+    # Calculate midpoint of the square
+    center_i = i + half
+    center_j = j + half
+
     corners = np.array([top_left, top_right, bottom_left, bottom_right])
+    # Calculate average
 
-    heightmap[mid_i, mid_j] = np.mean(corners) + rand_scale * size * (
-        rng.random() - 0.5
-    )
+    current_scale = rand_scale * terrain_roughness
+    mid = np.mean(corners) + current_scale * (rng.random() - 0.5)
+    heightmap[center_i, center_j] = mid
 
-    heightmap[i, mid_j] = np.mean([top_left, top_right]) + rand_scale * size * (
-        rng.random() - 0.5
-    )
-    # Right side
-    heightmap[mid_i, j + size] = np.mean(
-        [top_right, bottom_right]
-    ) + rand_scale * size * (rng.random() - 0.5)
-    # Bottom side
-    heightmap[i + size, mid_j] = np.mean(
-        [bottom_left, bottom_right]
-    ) + rand_scale * size * (rng.random() - 0.5)
+    # Only fill in sides if they are empty
     # Left side
-    heightmap[mid_i, j] = np.mean([top_left, bottom_left]) + rand_scale * size * (
-        rng.random() - 0.5
-    )
+    if np.isnan(heightmap[center_i, j]):
+        heightmap[center_i, j] = np.mean([top_left, top_right, mid]) + current_scale * (
+            rng.random() - 0.5
+        )
+    # Bottom side
+    if np.isnan(heightmap[i + last_index, center_j]):
+        heightmap[i + last_index, center_j] = np.mean(
+            [top_right, bottom_right, mid]
+        ) + current_scale * (rng.random() - 0.5)
+    # Right side
+    if np.isnan(heightmap[center_i, j + last_index]):
+        heightmap[center_i, j + last_index] = np.mean(
+            [bottom_left, bottom_right, mid]
+        ) + current_scale * (rng.random() - 0.5)
+    # Top side
+    if np.isnan(heightmap[i, center_j]):
+        heightmap[i, center_j] = np.mean(
+            [top_left, bottom_left, mid]
+        ) + current_scale * (rng.random() - 0.5)
 
-    # Recursively apply to the four squares
-    if square_size > 1:
-        midpoint_2d(heightmap, i, j, square_size - 1, rand_scale)  # Top-left
-        midpoint_2d(heightmap, i, j + half, square_size - 1, rand_scale)  # Top-right
-        midpoint_2d(heightmap, i + half, j, square_size - 1, rand_scale)  # Bottom-left
+    # Recursively apply to the four quadrants
+    if grid_n > 1:
+        # Decrease scale for lower levels
+        rand_scale_max = max(rand_scale * 0.9, 0.2)
         midpoint_2d(
-            heightmap, i + half, j + half, square_size - 1, rand_scale
+            heightmap, i, j, (grid_n - 1), rand_scale_max, terrain_roughness
+        )  # Top-left
+        midpoint_2d(
+            heightmap, i, j + half, (grid_n - 1), rand_scale_max, terrain_roughness
+        )  # Top-right
+        midpoint_2d(
+            heightmap, i + half, j, (grid_n - 1), rand_scale_max, terrain_roughness
+        )  # Bottom-left
+        midpoint_2d(
+            heightmap,
+            i + half,
+            j + half,
+            (grid_n - 1),
+            rand_scale_max,
+            terrain_roughness,
         )  # Bottom-right
+    return
 
-    return heightmap[i : i + size + 1, j : j + size + 1]
+
+@njit
+def barycentric_to_cartesian(
+    vertex0: npt.NDArray[np.floating[Any]],
+    vertex1: npt.NDArray[np.floating[Any]],
+    vertex2: npt.NDArray[np.floating[Any]],
+    b2: float,
+    b3: float,
+) -> npt.NDArray[np.floating[Any]]:
+    # B1 + B2 + B3 = 1
+    # B1 is not needed, can be computed
+    px = ((1 - b2 - b3) * vertex0[0]) + b2 * vertex1[0] + b3 * vertex2[0]
+    py = ((1 - b2 - b3) * vertex0[1]) + b2 * vertex1[1] + b3 * vertex2[1]
+    pz = ((1 - b2 - b3) * vertex0[2]) + b2 * vertex1[2] + b3 * vertex2[2]
+
+    return np.array([px, py, pz])
+
+
+@njit
+def normalize_vector(
+    vector: npt.NDArray[np.floating[Any]],
+) -> npt.NDArray[np.floating[Any]]:
+    length = np.linalg.norm(vector)
+    return vector / length
 
 
 @njit
@@ -74,45 +136,50 @@ def random_rays(
     vertex2: npt.NDArray[np.floating[Any]],
     n_rays: int,
 ) -> tuple[npt.NDArray[np.floating[Any]], npt.NDArray[np.floating[Any]]]:
-    # rng generator; x0,x1,x2 vertices of triangle; n number of rays
-
-    # Normal vectors
     edge1 = vertex1 - vertex0
     edge2 = vertex2 - vertex0
-    normal = np.cross(edge1, edge2)
-    length = np.linalg.norm(normal)
-    normalized = normal / length
+    normal = normalize_vector(np.cross(edge1, edge2))
 
-    # Orthonormal basis for surface, with third component the normal component
+    # Normalize vectors
     edge1_normalized = edge1 / np.linalg.norm(edge1)
-    edge2_normalized = np.cross(normalized, edge1_normalized)
+    # Orthonormal basis for surface, with third component the normal component
+    edge2_normalized = np.cross(normal, edge1_normalized)
 
-    matrix = np.array([edge1_normalized, edge2_normalized, normalized]).T
+    matrix = np.array([edge1_normalized, edge2_normalized, normal]).T
 
     # Generate n_rays random polar and azimuthal angles.
     theta = np.pi * rng.random(size=n_rays) / 2
     phi = 2 * np.pi * rng.random(size=n_rays)
-
     ray_angles = np.array(
         [np.sin(phi) * np.sin(theta), np.cos(phi) * np.sin(theta), np.cos(theta)]
     )
+
     # Transform to 3d coordinates in the standard basis
     ray_vectors = matrix @ ray_angles
 
     # Uniformly distributed random points inside a triangle.
-    barymetric2_array = rng.random(size=n_rays)
-    barymetric3_array = rng.random(size=n_rays)
+    barycentric1_array = rng.random(size=n_rays)
+    barycentric2_array = rng.random(size=n_rays)
+    barycentric3_array = rng.random(size=n_rays)
+
+    # Normalize barycentric coordinates
+    sum_bary = barycentric1_array + barycentric2_array + barycentric3_array
+    barycentric2_array /= sum_bary
+    barycentric3_array /= sum_bary
+
     ray_positions = np.zeros((n_rays, 3))
     for index in range(n_rays):
+        # We only need to use barycentric 2 and 3, one is computed from the others
         random_coord = barycentric_to_cartesian(
             vertex0,
             vertex1,
             vertex2,
-            barymetric2_array[index],
-            barymetric3_array[index],
+            barycentric2_array[index],
+            barycentric3_array[index],
         )
         ray_positions[index] = random_coord
 
+    # Transpose ray vectors to get the shape (n_rays,3)
     return ray_positions, ray_vectors.T
 
 
@@ -123,8 +190,8 @@ def ray_triangle_intersection(
     vertex0: npt.NDArray[np.floating[Any]],
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
-):
-    # Legg til epsilon!?
+    epsilon: float = 1e-10,
+) -> npt.NDArray[np.floating[Any]] | None:
     edge_a = vertex1 - vertex0
     edge_b = vertex2 - vertex0
 
@@ -132,7 +199,7 @@ def ray_triangle_intersection(
     ray_cross_edge_b = np.cross(ray_direction, edge_b)
     det = np.dot(edge_a, ray_cross_edge_b)
 
-    if det == 0.0:
+    if det > -epsilon and det < epsilon:
         return None  # Ray is parallel to the triangle plane
 
     inv_det = 1.0 / det
@@ -141,19 +208,19 @@ def ray_triangle_intersection(
     origin_to_vertex = ray_origin - vertex0
 
     u = inv_det * np.dot(origin_to_vertex, ray_cross_edge_b)
-    if u < 0.0 or u > 1.0:
+    if (u < 0.0 and abs(u) > epsilon) or (u > 1 and abs(u - 1) > epsilon):
         return None
 
     origin_cross_edge_a = np.cross(origin_to_vertex, edge_a)
     v = inv_det * np.dot(ray_direction, origin_cross_edge_a)
 
-    if v < 0.0 or (u + v) > 1.0:
+    if (v < 0.0 and abs(v) > epsilon) or ((u + v) > 1.0 and abs(u + v - 1) > epsilon):
         return None
 
     # Compute t to find out where the intersection point is on the line
     t = inv_det * np.dot(edge_b, origin_cross_edge_a)
 
-    if t < 0.0:
+    if t <= epsilon:
         return None  # Intersection is behind the ray start
 
     # Compute the exact intersection point
@@ -161,6 +228,7 @@ def ray_triangle_intersection(
     return intersection_point
 
 
+# ADD NJIT
 @njit
 def has_ray_triangle_intersected(
     ray_origin: npt.NDArray[np.floating[Any]],
@@ -169,11 +237,9 @@ def has_ray_triangle_intersected(
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
 ) -> bool:
-
     intersection = ray_triangle_intersection(
         ray_origin, ray_direction, vertex0, vertex1, vertex2
     )
-
     return intersection is not None
 
 
@@ -192,16 +258,16 @@ def form_factors_raytrace(
         v2_i = vertices[ray_index_i[2]]
         # generate n rays from random points x in element i, in random directions r
         ray_positions, ray_vectors = random_rays(rng, v0_i, v1_i, v2_i, n_rays)
-
         # find out which element (if any) each ray hits
         for ray_idx in range(n_rays):
             ray_origin = ray_positions[ray_idx]
             ray_direction = ray_vectors[ray_idx]
 
+            # closest = 0
+            # hitElement = -1
             for j, ray_index_j in enumerate(triangles_indices):
                 if i == j:  # Skip self-intersection
                     continue
-
                 # Get vertices of element j
                 v0_j = vertices[ray_index_j[0]]
                 v1_j = vertices[ray_index_j[1]]
@@ -216,21 +282,6 @@ def form_factors_raytrace(
                     form_factor[i, j] += 1.0 / n_rays
 
     return form_factor
-
-
-def barycentric_to_cartesian(
-    vertex0: npt.NDArray[np.floating[Any]],
-    vertex1: npt.NDArray[np.floating[Any]],
-    vertex2: npt.NDArray[np.floating[Any]],
-    b2: float,
-    b3: float,
-) -> npt.NDArray[np.floating[Any]]:
-    # B2 and B3 are between 0-1
-    px = ((1 - b2 - b3) * vertex0[0]) + b2 * vertex1[0] + b3 * vertex2[0]
-    py = ((1 - b2 - b3) * vertex0[1]) + b2 * vertex1[1] + b3 * vertex2[1]
-    pz = ((1 - b2 - b3) * vertex0[2]) + b2 * vertex1[2] + b3 * vertex2[2]
-
-    return np.array([px, py, pz])
 
 
 # NOISE THING
@@ -260,19 +311,24 @@ vectors = np.array([np.cos(angles), np.sin(angles)])
 
 
 def easeCurve(t):
-    return 3 * t**2 - 2 * t**3
+    # Perlins ease curve
+    return t * t * t * (t * (t * 6 - 15) + 10)
 
 
 def lerp(a, b, t):
+    # Linear interpolation
     return a * (1 - t) + b * t
 
 
-def noise(x, y, x_grid, y_grid, vectors: np.ndarray):
+def noise(
+    x: float, y: float, x_grid: np.ndarray, y_grid: np.ndarray, vectors: np.ndarray
+):
     # Define i and j
     i = np.clip(int(x / cell_width), 0, grid_x_size - 2)
     j = np.clip(int(y / cell_height), 0, grid_y_size - 2)
 
     # tl = top left, tr = top right, bl = bottom left, br = bottom right
+    # Shape of x_grid/y_grid is (y, x)
     x_bl = x_grid[j, i]
     y_bl = y_grid[j, i]
     x_br = x_grid[j, i + 1]
@@ -290,6 +346,7 @@ def noise(x, y, x_grid, y_grid, vectors: np.ndarray):
     smoothty = easeCurve(ty)
 
     # Find vectors to corners
+    # Shape of vectors is (2, x, y)
     v_bl = vectors[:, i, j]
     v_br = vectors[:, i + 1, j]
     v_tl = vectors[:, i, j + 1]
