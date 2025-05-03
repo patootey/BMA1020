@@ -8,7 +8,17 @@ def midpoint_2d(
     grid_n: int,
     rand_scale: float,
     terrain_roughness: float = 1.0,
-):
+) -> None:
+    """
+    FILL INN
+
+    :param heightmap: FILL INN
+    :param i: FILL INN
+    :param j: FILL INN
+    :param grid_n: FILL INN
+    :param rand_scale: FILL INN
+    :param terrain_roughness: FILL INN
+    """
     rng = np.random.default_rng(12345)
     # Calculate the index of the last element in the square
     last_index = 2**grid_n

@@ -16,17 +16,21 @@ GREY = [200, 200, 200]
 def vector_normalize(vector: np.ndarray):
     """
     Normalizing the vector.
+
+    :param vector: The vector to normalize.
     """
     length = np.linalg.norm(vector)
     return vector / length
 
 
-def array_vector_normalize(vectors: np.ndarray):
-    """
-    Normalizing the vector.
-    """
-    length = np.linalg.norm(vectors, axis=1)
-    return vectors / length
+# def array_vector_normalize(vectors: np.ndarray):
+#     """
+#     Normalizing vectors.
+
+#     :param vectors: The vectors to be normalized.
+#     """
+#     length = np.linalg.norm(vectors, axis=1)
+#     return vectors / length
 
 
 def distance_point_to_plane(
@@ -146,8 +150,12 @@ def triangle_clip_against_plane(
     :param vertex_1: The first vertex.
     :param vertex_2: The second vertex.
     :param vertex_3: The third vertex.
+    :param distance_1: FILL IN
+    :param distance_2: FILL IN
+    :param distance_3: FILL IN
+    :param color: The color of the triangle.
+    :param clip_debug: Bool to check if debug is on.
     """
-
     # Make sure the plane is normal
     plane_n = vector_normalize(plane_n)
 
@@ -258,8 +266,20 @@ def array_triangle_clip_against_plane(
     triangles: np.ndarray,
     colors: np.ndarray,
     clip_debug: bool,
-):
+) -> tuple[
+    np.ndarray, np.ndarray, np.ndarray
+]:  # tuple[np.NDArray[Any], np.NDArray[Any], np.NDArray[Any]]:
+    """
+    Clipping all the triangle against the plane.
+    Returns a tuple of all indices, verticies and colors that are clipped.
 
+    :param plane_p: The normal of the plane.
+    :param plane_n: The postition of the plane.
+    :param vertices: All the verticies.
+    :param triangles: All the triangles.
+    :param colors: All the colors of triangles.
+    :param clip_debug: Bool to check if debug is on.
+    """
     distances = array_distance_to_plane(plane_p, plane_n, vertices)
     list_verticies = []
     list_colors = []
@@ -310,12 +330,15 @@ def array_project(
     fov: float,
 ) -> np.ndarray:
     """
-    Project the vertex onto the camera plane and returns it.
+    Project all the vertices onto the camera plane and returns it.
 
     :param vertex: The vertex to project.
     :param window_width: Window width.
     :param window_heigth: Window heigth.
     :return: Transformed vertex.
+    :param far: FILL INN
+    :param near: FILL INN
+    :param fov: FILL INN
     """
     # This type of projection I got from watching Youtube videos about 3D projecting and clipping
     aspectratio = window_height / window_width
@@ -350,7 +373,18 @@ def array_project_screen(
     far: float,
     near: float,
     fov: float,
-):
+) -> np.ndarray:
+    """
+    Projects all the vertices onto the camera plane and return it.
+
+    :param vertex: The vertex to project.
+    :param window_width: Window width.
+    :param window_heigth: Window heigth.
+    :return: Transformed vertex.
+    :param far: FILL INN
+    :param near: FILL INN
+    :param fov: FILL INN
+    """
 
     half_width = window_width / 2
     half_height = window_height / 2
