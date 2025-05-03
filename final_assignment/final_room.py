@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from global_functions import array_triangle_clip_against_plane, array_project_screen
 from midpoint import midpoint_2d
-from ray_tracing import form_factors_raytrace
+from ray_tracing import form_factors_raytrace, is_triangle_visible
 import numpy as np
 import pyglet
 from pyglet.graphics import Batch
@@ -148,6 +148,7 @@ class Ray_tracing_model_3d:
         self.form_factor_array: np.ndarray = np.array([])
 
         # self.ray_trace = False
+        self.centroids = np.array([])
 
     def prepare(self) -> None:
         """
@@ -283,6 +284,10 @@ class Ray_tracing_model_3d:
         :param window_width: Window width.
         :param window_heigth: Window heigth.
         """
+
+        # if not vis_check:
+        #     return
+
         if self.next_triangle_index < len(self.triangles):
             triangle = self.triangles[self.next_triangle_index]
             triangle.x = vertex1[0]
@@ -387,8 +392,10 @@ class Ray_tracing_model_3d:
 
         sorted_indices = np.argsort(z_values)[::-1]
 
+        # camera_position = np.array([0, 0, 0])
         # Rebuild the triangles for each edge
         for triangle_index in sorted_indices:
+
             color = new_colors[triangle_index]
             triangle_array: np.ndarray = new_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
@@ -397,12 +404,54 @@ class Ray_tracing_model_3d:
             vertex2 = projected_vertices[vertex2_index]
             vertex3 = projected_vertices[vertex3_index]
 
+            if vis_check:
+                original_triangle_idx = self._get_original_triangle_index(
+                    triangle_index, new_indices
+                )
+                if original_triangle_idx is not None and not is_triangle_visible(
+                    original_triangle_idx,
+                    new_indices,
+                    new_vertices,
+                ):
+                    continue  # Skip drawing this triangle if not visible
+
+            # if vis_check:
+            #     """
+            #     we want you to use raytracing to find the form factors i.e. use your code from assignment 9.
+            #     This will allow you to take into account the visibility of one surface from another.
+            #     we now have to deal with elements that can block the line of sight from the camera to another.
+            #     when element $i$ is to be drawn, the code checks whether a ray from the origin (the camera position) to the centroid of $i$ passes through any other elements first.
+            #     If it does, the element is not drawn.
+            #     This obviously omits partially obscured elements, but for small enough elements in a dimly lit room (such as above) this is barely noticable.
+            #     Otherwise, if no visibility check is implemented, the picture will likely look good from certain viewing angles, but not others. For full points, you should implement the 'simple'
+            #     algorithm above, but include an option to turn it off, as below.
+            #     """
+            #     pass
+
+            # Only build visible triangles when vis_check is enabled
+            # if is_visible:
             self.build_triangle(
                 vertex1=vertex1,
                 vertex2=vertex2,
                 vertex3=vertex3,
                 color=color,
             )
+
+    def _get_original_triangle_index(
+        self, clipped_index: int, new_indices: np.ndarray
+    ) -> int | None:
+        """
+        Map a clipped triangle index back to the original triangle indices.
+        This is needed because the clipping process might create new triangles.
+
+        Returns None if mapping can't be determined.
+        """
+        if clipped_index < len(new_indices):
+            return clipped_index
+
+        # This is a simple approach - a more accurate mapping would need to be maintained
+        # during the clipping process
+        return None
 
     @classmethod  # 10 points
     def model_rect(
@@ -525,6 +574,8 @@ class Ray_tracing_model_3d:
 
         self.normal_array = np.zeros((num_triangles, 3))
         self.area_array = np.zeros(num_triangles)
+        self.centroid_array = np.zeros((num_triangles, 3))
+        #        self.radius_array = np.zeros(num_triangles)
 
         for i in range(num_triangles):
             # Get indices of the three vertices
@@ -548,9 +599,19 @@ class Ray_tracing_model_3d:
 
             area = normalize / 2
 
+            # Maybe use mean
+            centroid = np.mean(np.array([vertex_1, vertex_2, vertex_3]))
+
+            # dist1 = np.linalg.norm(vertex_1 - centroid)
+            # dist2 = np.linalg.norm(vertex_2 - centroid)
+            # dist3 = np.linalg.norm(vertex_3 - centroid)
+            # radius = max(dist1, dist2, dist3)
+
             # Store results
             self.normal_array[i] = normal
             self.area_array[i] = area
+            self.centroid_array[i] = centroid
+            # self.radius_array[i] = radius
 
     def update_form_factors(self, raytrace=False, n_rays: int = 10) -> None:  # 5 points
         """
@@ -562,27 +623,22 @@ class Ray_tracing_model_3d:
         """
 
         if raytrace:
-            # Use ray tracing for form factor calculation
-            rng = np.random.default_rng()  # Create a random number generator
-            # n_rays = 100  # Number of rays to cast per triangle
+            rng = np.random.default_rng(123)
             self.form_factor_array = form_factors_raytrace(
                 self.vertices, self.triangle_indices, n_rays, rng
             )
         else:
-
-            # MAYBE NEED A NEW CHECK
-
-            #
-
             num_triangles = len(self.triangle_indices)
             self.form_factor_array = np.zeros((num_triangles, num_triangles))
 
-            centroids = np.zeros((num_triangles, 3))
+            self.centroids = np.zeros((num_triangles, 3))
             for i in range(num_triangles):
-                centroids[i] = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
+                self.centroids[i] = np.mean(
+                    self.vertices[self.triangle_indices[i]], axis=0
+                )
 
-            centroids_i = centroids[:, np.newaxis, :]
-            centroids_j = centroids[np.newaxis, :, :]
+            centroids_i = self.centroids[:, np.newaxis, :]
+            centroids_j = self.centroids[np.newaxis, :, :]
 
             r_vectors = centroids_j - centroids_i
 
@@ -724,18 +780,6 @@ def measure_duration(text: str, is_active: bool):
 
 
 def main() -> None:
-
-    # @g_window.event
-    # def on_draw() -> None:
-    #     g_window.clear()
-    #     # cube.batch.draw()
-    #     sprite.draw()
-
-    #     # if show_triangle_count:
-    #     #     triangle_count_label.draw()
-
-    # pyglet.app.run()
-    # return
     cube = Ray_tracing_model_3d(
         vertices=np.empty((0, 3)),
         triangle_indices=np.empty((0, 3), dtype=int),
@@ -755,7 +799,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.5, 0.1, 0.7]),
+        reflect=np.array([0.1, 0.4, 0.1]),
         translation_vector=np.array([0, 0, cube_size / 2 + offset]),  # Front position
         rotation_axis=np.array([0, 0, 1]),
         rotation_angle=0,
@@ -772,7 +816,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.0, 0.5, 0.5]),
+        reflect=np.array([0.1, 0.4, 0.3]),
         translation_vector=np.array([0, 0, -cube_size / 2]),  # Back position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi,  # 180 degree rotation
@@ -789,7 +833,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.8, 0.5, 0.3]),
+        reflect=np.array([0.1, 0.2, 0.1]),
         translation_vector=np.array([cube_size / 2, 0, 0]),  # Right position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -805,7 +849,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.1, 0.3, 0.5]),
+        reflect=np.array([0.1, 0.2, 0.1]),
         translation_vector=np.array([-cube_size / 2, 0, 0]),  # Left position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -821,7 +865,7 @@ def main() -> None:
         cube_size / 2 + offset,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.1, 0.6, 0.1]),
+        reflect=np.array([0.4, 0.1, 0.1]),
         translation_vector=np.array([0, -cube_size / 2, 0]),  # Bottom position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -852,7 +896,7 @@ def main() -> None:
     # USED AI TO GENRATE COLUMNS
     column_size = 25
     column_height = cube_size - 5
-    column_division = 2
+    column_division = 4
     reflectance_gray = np.array([0.2, 0.2, 0.2])  # Medium gray
 
     # Offsets to place columns toward corners
@@ -861,16 +905,17 @@ def main() -> None:
     # 4 corner positions
     column_positions = [
         np.array([column_offset, 0, column_offset]),  # Front right
-        np.array([-column_offset, 0, column_offset]),  # Front left
-        np.array([column_offset, 0, -column_offset]),  # Back right
-        np.array([-column_offset, 0, -column_offset]),  # Back left
     ]
 
     for pos in column_positions:
         for i in range(4):
             angle = i * np.pi / 2
             face_translation = pos + np.array(
-                [column_size / 2 * np.sin(angle), 0, column_size / 2 * np.cos(angle)]
+                [
+                    column_size / 2 * np.sin(angle) - 10,
+                    0,
+                    column_size / 2 * np.cos(angle) - 5,
+                ]
             )
 
             column_face = cube.model_rect(
@@ -902,7 +947,7 @@ def main() -> None:
         emission=np.array([10.0, 10.0, 10.0]),  # Bright white light
         reflect=np.array([0.0, 0.0, 0.0]),
         translation_vector=np.array(
-            [0, cube_size / 2 - 5, 0]
+            [0, cube_size / 2 - 2, 80]
         ),  # Slightly below ceiling
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,  # Pointing down
@@ -921,68 +966,25 @@ def main() -> None:
     #     reflect=np.array([0.3, 0.0, 0.2]),
     # )
 
+    visability_check: bool = False
+
     print("Update geometry...")
     cube.update_geometry()
 
     with measure_duration("Form factor duration: ", True):
         print("Calculating form factors...")
-        cube.update_form_factors(raytrace=False, n_rays=10)
+        cube.update_form_factors(raytrace=True, n_rays=50)
 
     with measure_duration("Color duration: ", True):
         print("Calculating light luminances...")
-        cube.colors = cube.find_colors(num_iterations=25)
+        cube.colors = cube.find_colors(num_iterations=50)
 
     noise = PerlinNoise(
         width=g_window_width,
         height=g_window_height,
     )
 
-    sprite = noise.to_sprite()
-
-    # se over charles kode
-    # noise_class = PerlinNoise(width=g_window_width, height=g_window_height).noise2()
-
-    # noise_values = np.zeros((g_window_height, g_window_width))
-    # for y in range(g_window_height):
-    #     for x in range(g_window_width):
-    #         noise_values[y, x] = noise_class.noise2(x, y)
-
-    # # values from [0,1] to [0,255]
-    # noise_rgba = np.zeros((g_window_height, g_window_width, 4), dtype=np.uint8)
-    # noise_rgba[:, :, 0] = noise_rgba[:, :, 1] = noise_rgba[:, :, 2] = (
-    #     noise_values * 255
-    # ).astype(np.uint8)
-    # # transperancy
-    # noise_rgba[:, :, 3] = 20
-
-    # noise_data = noise_rgba.flatten().tobytes()
-
-    # noise = pyglet.image.ImageData(
-    #     g_window_width, g_window_height, "RGBA", noise_data, pitch=g_window_width * 4
-    # )
-
-    # sprite = pyglet.sprite.Sprite(img=noise)
-
-    # # generate an alpha channel, i.e. a transparency
-    # # you can play around with the value
-    # A = 50 * np.ones((width, height))
-
-    # # this makes the noise greyscale (sets RGB to be the same) and adds the alpha channel
-    # Z = np.dstack([Z, Z, Z, A]).astype(np.uint32)
-
-    # # you may need to take Z.T here, depending on how you ordered the output
-    # # Z = Z.T
-
-    # Z = Z.reshape(height * width * 4)
-
-    # # convert the bitmap to a form pyglet can read
-    # Zn_data = (GLubyte * Z.size)(*Z.astype("uint8"))
-
-    # # create an image of the noise
-    # Noise = pyglet.image.ImageData(width, height, "RGBA", Zn_data, pitch=width * 3)
-
-    # # set the noise into a sprite for displaying in the pyglet application
-    # sprite = pyglet.sprite.Sprite(img=Noise)
+    sprite = noise.to_sprite(alpha=25)
 
     show_duration = False
     show_triangle_count = False
@@ -1074,7 +1076,9 @@ def main() -> None:
         with measure_duration("Build triangles duration: ", show_duration):
             # Building the needed triangles to the screen
             cube.build_triangles(
-                window_width=g_window_width, window_height=g_window_height
+                window_width=g_window_width,
+                window_height=g_window_height,
+                vis_check=visability_check,
             )
         if show_triangle_count:
             triangle_count_label.text = f"Triangle Count: {cube.next_triangle_index}"
