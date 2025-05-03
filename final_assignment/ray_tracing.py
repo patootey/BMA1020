@@ -13,8 +13,17 @@ def barycentric_to_cartesian(
     b2: float,
     b3: float,
 ) -> npt.NDArray[np.floating[Any]]:
-    # B1 + B2 + B3 = 1
-    # B1 is not needed, can be computed
+    """
+    Converting barycentric coordinates to cartisian.
+    B1 is not needed in the formula, can be computed:
+        B1 + B2 + B3 = 1
+
+    :param vertex0: X-coordinate.
+    :param vertex1: Y-coordinate.
+    :param vertex2: Z-coordinate.
+    :param b2:
+    :param b3:
+    """
     px = ((1 - b2 - b3) * vertex0[0]) + b2 * vertex1[0] + b3 * vertex2[0]
     py = ((1 - b2 - b3) * vertex0[1]) + b2 * vertex1[1] + b3 * vertex2[1]
     pz = ((1 - b2 - b3) * vertex0[2]) + b2 * vertex1[2] + b3 * vertex2[2]
@@ -26,12 +35,17 @@ def barycentric_to_cartesian(
 def normalize_vector(
     vector: npt.NDArray[np.floating[Any]],
 ) -> npt.NDArray[np.floating[Any]]:
+    """
+    Normalizing the vector.
+
+    :param vector: The vector to normalize.
+    """
     length = np.linalg.norm(vector)
     return vector / length
 
 
 # FIX RANDOM, np.random.rand()
-@njit
+# @njit
 def random_rays(
     rng: random.Generator,
     vertex0: npt.NDArray[np.floating[Any]],
@@ -51,8 +65,12 @@ def random_rays(
     matrix = np.array([edge1_normalized, edge2_normalized, normal]).T
 
     # Generate n_rays random polar and azimuthal angles.
-    theta = np.pi * rng.random(size=n_rays) / 2
-    phi = 2 * np.pi * rng.random(size=n_rays)
+    theta = (
+        np.pi * rng.random(size=n_rays) / 2
+    )  # (np.random.rand(1) * n_rays) / 2  # rng.random(size=n_rays) / 2
+    phi = (
+        2 * np.pi * rng.random(size=n_rays)
+    )  # (np.random.rand(1) * n_rays)  # rng.random(size=n_rays)
     ray_angles = np.array(
         [np.sin(phi) * np.sin(theta), np.cos(phi) * np.sin(theta), np.cos(theta)]
     )
@@ -61,9 +79,13 @@ def random_rays(
     ray_vectors = matrix @ ray_angles
 
     # Uniformly distributed random points inside a triangle.
-    barycentric1_array = rng.random(size=n_rays)
-    barycentric2_array = rng.random(size=n_rays)
-    barycentric3_array = rng.random(size=n_rays)
+    barycentric1_array = rng.random(size=n_rays)  # np.random.rand(1) * n_rays
+    barycentric2_array = rng.random(
+        size=n_rays
+    )  # np.random.rand(1) * n_rays  # rng.random(size=n_rays)
+    barycentric3_array = rng.random(
+        size=n_rays
+    )  # np.random.rand(1) * n_rays  # rng.random(size=n_rays)
 
     # Normalize barycentric coordinates
     sum_bary = barycentric1_array + barycentric2_array + barycentric3_array
@@ -86,7 +108,6 @@ def random_rays(
     return ray_positions, ray_vectors.T
 
 
-# @njit
 def ray_triangle_intersection(
     ray_origin: npt.NDArray[np.floating[Any]],
     ray_direction: npt.NDArray[np.floating[Any]],
@@ -94,7 +115,7 @@ def ray_triangle_intersection(
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
     epsilon: float = 1e-10,
-) -> npt.NDArray[np.floating[Any]] | None:
+) -> tuple[npt.NDArray[np.floating[Any]] | None, float]:
     edge_a = vertex1 - vertex0
     edge_b = vertex2 - vertex0
 
@@ -103,7 +124,7 @@ def ray_triangle_intersection(
     det = np.dot(edge_a, ray_cross_edge_b)
 
     if det > -epsilon and det < epsilon:
-        return None  # Ray is parallel to the triangle plane
+        return (None, 0.0)  # Ray is parallel to the triangle plane
 
     inv_det = 1.0 / det
 
@@ -112,40 +133,38 @@ def ray_triangle_intersection(
 
     u = inv_det * np.dot(origin_to_vertex, ray_cross_edge_b)
     if (u < 0.0 and abs(u) > epsilon) or (u > 1 and abs(u - 1) > epsilon):
-        return None
+        return (None, 0.0)
 
     origin_cross_edge_a = np.cross(origin_to_vertex, edge_a)
     v = inv_det * np.dot(ray_direction, origin_cross_edge_a)
 
     if (v < 0.0 and abs(v) > epsilon) or ((u + v) > 1.0 and abs(u + v - 1) > epsilon):
-        return None
+        return (None, 0.0)
 
     # Compute t to find out where the intersection point is on the line
     t = inv_det * np.dot(edge_b, origin_cross_edge_a)
 
     if t <= epsilon:
-        return None  # Intersection is behind the ray start
+        return (None, 0.0)  # Intersection is behind the ray start
 
     # Compute the exact intersection point
     intersection_point = ray_origin + t * ray_direction
-    return intersection_point
+    return intersection_point, t  # intersection_point
 
 
-# @njit
 def has_ray_triangle_intersected(
     ray_origin: npt.NDArray[np.floating[Any]],
     ray_direction: npt.NDArray[np.floating[Any]],
     vertex0: npt.NDArray[np.floating[Any]],
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
-) -> bool:
-    intersection = ray_triangle_intersection(
+) -> tuple[bool, float]:
+    intersection, t = ray_triangle_intersection(
         ray_origin, ray_direction, vertex0, vertex1, vertex2
     )
-    return intersection is not None
+    return intersection is not None, t
 
 
-# @njit
 def form_factors_raytrace(
     vertices: npt.NDArray[np.floating[Any]],
     triangles_indices: npt.NDArray[np.int64],
@@ -160,13 +179,15 @@ def form_factors_raytrace(
         v2_i = vertices[ray_index_i[2]]
         # generate n rays from random points x in element i, in random directions r
         ray_positions, ray_vectors = random_rays(rng, v0_i, v1_i, v2_i, n_rays)
+
+        # hits = np.zeros(ray_size)
         # find out which element (if any) each ray hits
         for ray_idx in range(n_rays):
             ray_origin = ray_positions[ray_idx]
             ray_direction = ray_vectors[ray_idx]
 
-            # closest = 0
-            # hitElement = -1
+            closest_distance = float("inf")
+            closest_element = -1
             for j, ray_index_j in enumerate(triangles_indices):
                 if i == j:  # Skip self-intersection
                     continue
@@ -175,12 +196,68 @@ def form_factors_raytrace(
                 v1_j = vertices[ray_index_j[1]]
                 v2_j = vertices[ray_index_j[2]]
 
-                intersection = has_ray_triangle_intersected(
+                hit, distance = has_ray_triangle_intersected(
                     ray_origin, ray_direction, v0_j, v1_j, v2_j
                 )
 
-                if intersection:
-                    # add 1/n to F[i,j] for each ray from i hitting j
-                    form_factor[i, j] += 1.0 / n_rays
+                if hit and distance < closest_distance:
+                    closest_distance = distance
+                    closest_element = j
+
+            if closest_element != -1:
+                form_factor[i, closest_element] += 1.0 / n_rays
 
     return form_factor
+
+
+def is_triangle_visible(
+    triangle_index: int,
+    triangle_indices: np.ndarray,
+    temporary_vertices: np.ndarray,
+    camera_position: np.ndarray = np.array([0, 0, -10]),
+) -> bool:
+    """
+    Check if a triangle is visible from the camera position.
+    """
+    vertex_indices = triangle_indices[triangle_index]
+
+    for index in vertex_indices:
+        vertices = temporary_vertices[index]
+
+    vertices = np.array(
+        [
+            temporary_vertices[vertex_indices[0]],
+            temporary_vertices[vertex_indices[1]],
+            temporary_vertices[vertex_indices[2]],
+        ]
+    )
+    # vertices = [temporary_vertices[idx] for idx in vertex_indices]
+
+    # Calculate the centroid of the triangle
+    centroid = np.mean(vertices, axis=0)
+
+    # Calculate direction from camera to centroid
+    direction = normalize_vector(centroid - camera_position)
+
+    # Check if any other triangle is between the camera and this triangle
+    for i, indices in enumerate(triangle_indices):
+        if i == triangle_index:
+            continue  # Skip self
+
+        v0 = temporary_vertices[indices[0]]
+        v1 = temporary_vertices[indices[1]]
+        v2 = temporary_vertices[indices[2]]
+
+        hit, distance = has_ray_triangle_intersected(
+            camera_position, direction, v0, v1, v2
+        )
+
+        # Calculate distance to the centroid
+        centroid_distance = np.linalg.norm(centroid - camera_position)
+
+        # If we hit another triangle that's closer than our target,
+        # then our target triangle is occluded
+        if hit and distance < centroid_distance:
+            return False
+
+    return True
