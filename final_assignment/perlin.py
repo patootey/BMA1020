@@ -1,24 +1,28 @@
-# from matplotlib import pyplot as plt
 from math import ceil
 import numpy as np
-
 from numba import njit
 
 
 @njit
 def ease_curve(t):
-    # Perlins ease curve
+    """Perlins ease curve."""
     return t * t * t * (t * (t * 6 - 15) + 10)
 
 
 @njit
 def lerp(a, b, t):
-    # Linear interpolation
+    """Linear interpolation"""
     return a * (1 - t) + b * t
 
 
 def noise(width: int, height: int, grid_size: tuple[int, int] | None = None):
+    """
+    FILL INN
 
+    :param width: Width of the screen.
+    :param height: Height of the screen.
+    :param grid_size: FILL INN
+    """
     if grid_size is None:
         grid_x_size = ceil(width / 60) + 1
         grid_y_size = ceil(height / 60) + 1
@@ -31,9 +35,9 @@ def noise(width: int, height: int, grid_size: tuple[int, int] | None = None):
         cell_width = width // (grid_x_size - 1)
         cell_height = height // (grid_y_size - 1)
 
-    x_grid, y_grid = np.meshgrid(
-        np.linspace(0, width, grid_x_size), np.linspace(0, height, grid_y_size)
-    )
+    x_coords = np.linspace(0, width, grid_x_size)
+    y_coords = np.linspace(0, height, grid_y_size)
+    x_grid, y_grid = np.meshgrid(x_coords, y_coords)
 
     angles = (
         2
@@ -92,11 +96,3 @@ def noise(width: int, height: int, grid_size: tuple[int, int] | None = None):
 
     values = (values - np.min(values)) / (np.max(values) - np.min(values))
     return values
-
-
-# noise_img = noise(600, 480)
-# plt.figure(figsize=(10, 8))
-# plt.imshow(noise_img, cmap="gray")
-# plt.title("Perlin Noise")
-# plt.colorbar()
-# plt.show()
