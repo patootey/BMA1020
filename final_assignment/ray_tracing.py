@@ -1,8 +1,12 @@
+"""
+Code that handles formfactor with raytracing, random rays and intersection with rays.
+
+@Author Mathilde Borsodi Hegna
+"""
+
 import numpy as np
 from numpy import typing as npt
 from typing import Any
-
-# from numpy import random
 from numba import njit
 
 
@@ -19,11 +23,11 @@ def barycentric_to_cartesian(
     B1 is not needed in the formula, can be computed:
         B1 + B2 + B3 = 1
 
-    :param vertex0:
-    :param vertex1:
-    :param vertex2:
-    :param b2:
-    :param b3:
+    :param vertex0: First vertex.
+    :param vertex1: Second vertex.
+    :param vertex2: Third vertex.
+    :param b2: Random value.
+    :param b3: Random value.
     """
     px = ((1 - b2 - b3) * vertex0[0]) + b2 * vertex1[0] + b3 * vertex2[0]
     py = ((1 - b2 - b3) * vertex0[1]) + b2 * vertex1[1] + b3 * vertex2[1]
@@ -69,12 +73,16 @@ def random_rays(
     # Orthonormal basis for surface, with third component the normal component
     edge2_normalized = np.cross(normal, edge1_normalized)
 
-    matrix = np.zeros((3, 3), dtype=np.float64)
+    # matrix = np.zeros((3, 3), dtype=np.float64)
     # matrix = np.array([edge1_normalized, edge2_normalized, normal], dtype=np.float64).T
-    for i in range(3):
-        matrix[0, i] = edge1_normalized[i]
-        matrix[1, i] = edge2_normalized[i]
-        matrix[2, i] = normal[i]
+    # for i in range(3):
+    #     matrix[0, i] = edge1_normalized[i]
+    #     matrix[1, i] = edge2_normalized[i]
+    #     matrix[2, i] = normal[i]
+    matrix = np.zeros((3, 3), dtype=np.float64)
+    matrix[:, 0] = edge1_normalized
+    matrix[:, 1] = edge2_normalized
+    matrix[:, 2] = normal
 
     # Generate n_rays random polar and azimuthal angles.
     theta = np.pi * np.random.random(n_rays) / 2  # rng.random(size=n_rays) / 2
@@ -203,7 +211,7 @@ def form_factors_raytrace(
     vertices: npt.NDArray[np.floating[Any]],
     triangles_indices: npt.NDArray[np.int64],
     normals: np.ndarray,
-    centroids: np.ndarray,
+    # centroids: np.ndarray,
     n_rays: int,
 ) -> npt.NDArray[np.floating[Any]]:
     """
@@ -211,9 +219,9 @@ def form_factors_raytrace(
 
     :param verticies: Array of verticies.
     :param triangles_indices: Array of triangle indices.
+    :param normals: Array of normals.
     :param n_rays: Number of rays to calculate.
     """
-    # ray_size = np.size(triangles_indices, axis=0)
     ray_size = triangles_indices.shape[0]
     form_factor = np.zeros((ray_size, ray_size), dtype=np.float64)
     for i, ray_index_i in enumerate(triangles_indices):
@@ -223,13 +231,11 @@ def form_factors_raytrace(
         # generate n rays from random points x in element i, in random directions r
         ray_positions, ray_vectors = random_rays(v0_i, v1_i, v2_i, n_rays)
 
-        # hits = np.zeros(ray_size)
         # find out which element (if any) each ray hits
         for ray_idx in range(n_rays):
             ray_origin = ray_positions[ray_idx]
             ray_direction = ray_vectors[ray_idx]
 
-            # closest_distance = np.inf
             min_occlusion_distance = np.inf
             closest_element = -1
             for j, ray_index_j in enumerate(triangles_indices):
@@ -241,26 +247,16 @@ def form_factors_raytrace(
                 v2_j = vertices[ray_index_j[2]]
 
                 dot_product = np.dot(ray_direction, normals[j])
-                if dot_product >= 0:  # Triangle is facing away or perpendicular
+                if dot_product >= 0:
                     continue
 
                 hit, distance = has_ray_triangle_intersected(
                     ray_origin, ray_direction, v0_j, v1_j, v2_j
                 )
 
-                # if hit and distance < closest_distance:
-                #     closest_distance = distance
-                #     closest_element = j
-
-                if hit:
-                    centroid_vector = centroids[j] - ray_origin
-                    centroid_distance = np.sqrt(
-                        np.sum(centroid_vector * centroid_vector)
-                    )
-
-                    if centroid_distance < min_occlusion_distance:
-                        min_occlusion_distance = centroid_distance
-                        closest_element = j
+                if hit and distance < min_occlusion_distance:
+                    min_occlusion_distance = distance
+                    closest_element = j
 
             if closest_element != -1:
                 form_factor[i, closest_element] += 1.0 / n_rays
@@ -268,57 +264,56 @@ def form_factors_raytrace(
     return form_factor
 
 
-@njit
-def is_triangle_visible(
-    triangle_index: int,
-    triangle_indices: np.ndarray,
-    vertices: np.ndarray,
-    camera_position: np.ndarray = np.array([0, 0, -10], dtype=np.float64),
-    epsilon: float = 1e-10,
-) -> bool:
-    """
-    Check if a triangle is visible from the camera position.
+# @njit
+# def is_triangle_visible(
+#     triangle_index: int,
+#     triangle_indices: np.ndarray,
+#     vertices: np.ndarray,
+#     camera_position: np.ndarray = np.array([0, 0, -10], dtype=np.float64),
+#     epsilon: float = 1e-10,
+# ) -> bool:
+#     """
+#     Check if a triangle is visible from the camera position.
 
-    NOT OPTIMISED
-    """
-    vertex_indices = triangle_indices[triangle_index]
-    v0 = vertices[vertex_indices[0]]
-    v1 = vertices[vertex_indices[1]]
-    v2 = vertices[vertex_indices[2]]
+#     NOT OPTIMISED
+#     """
+#     vertex_indices = triangle_indices[triangle_index]
+#     v0 = vertices[vertex_indices[0]]
+#     v1 = vertices[vertex_indices[1]]
+#     v2 = vertices[vertex_indices[2]]
 
-    # centroid = np.mean(vertices, axis=0)
-    centroid = (v0 + v1 + v2) / 3.0
-    # Vector from camera to centroid
-    direction_to_centroid = normalize_vector(centroid - camera_position)
+#     # centroid = np.mean(vertices, axis=0)
+#     centroid = (v0 + v1 + v2) / 3.0
+#     # Vector from camera to centroid
+#     direction_to_centroid = normalize_vector(centroid - camera_position)
 
-    # Distance from camera to centroid
-    centroid_distance = np.linalg.norm(centroid - camera_position)
+#     # Distance from camera to centroid
+#     centroid_distance = np.linalg.norm(centroid - camera_position)
 
-    # Check if any other triangle is between the camera and this triangle
-    for i, indices in enumerate(triangle_indices):
-        if i == triangle_index:
-            continue  # Skip self
+#     # Check if any other triangle is between the camera and this triangle
+#     for i, indices in enumerate(triangle_indices):
+#         if i == triangle_index:
+#             continue  # Skip self
 
-        other_v0 = vertices[indices[0]]
-        other_v1 = vertices[indices[1]]
-        other_v2 = vertices[indices[2]]
+#         other_v0 = vertices[indices[0]]
+#         other_v1 = vertices[indices[1]]
+#         other_v2 = vertices[indices[2]]
 
-        hit, distance = has_ray_triangle_intersected(
-            camera_position, direction_to_centroid, other_v0, other_v1, other_v2
-        )
+#         hit, distance = has_ray_triangle_intersected(
+#             camera_position, direction_to_centroid, other_v0, other_v1, other_v2
+#         )
 
-        # If we hit another triangle that's closer than our target,
-        # then our target triangle is occluded
-        if hit and distance < centroid_distance - epsilon:
-            return False
+#         # If we hit another triangle that's closer than our target,
+#         # then our target triangle is occluded
+#         if hit and distance < centroid_distance - epsilon:
+#             return False
 
-    return True
+#     return True
 
 
 @njit
 def get_visible_triangles(
     camera_position: np.ndarray,
-    # camera_direction: np.ndarray,
     triangle_indices: np.ndarray,
     vertices: np.ndarray,
     centroids: np.ndarray,

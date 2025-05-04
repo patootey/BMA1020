@@ -1,3 +1,9 @@
+"""
+Code that generates a height map.
+
+@Author Mathilde Borsodi Hegna
+"""
+
 import numpy as np
 
 
@@ -10,14 +16,14 @@ def midpoint_2d(
     terrain_roughness: float = 1.0,
 ) -> None:
     """
-    FILL INN
+    Generate a heightmap recursivly.
 
-    :param heightmap: FILL INN
-    :param i: FILL INN
-    :param j: FILL INN
-    :param grid_n: FILL INN
-    :param rand_scale: FILL INN
-    :param terrain_roughness: FILL INN
+    :param heightmap:
+    :param i: Start point.
+    :param j: Start point.
+    :param grid_n: The power of the grid.
+    :param rand_scale: The scale.
+    :param terrain_roughness: How rought the terrain is.
     """
     rng = np.random.default_rng(12345)
     # Calculate the index of the last element in the square

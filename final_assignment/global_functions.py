@@ -1,7 +1,7 @@
 """
-Code for handling vector functions and intersections, raytracing
+Code for handling vector functions, intersections, raytracing, translations and rotations.
 
-Author: Mathilde Borsodi Hegna
+@Author Mathilde Borsodi Hegna
 """
 
 import numpy as np
@@ -21,16 +21,6 @@ def vector_normalize(vector: np.ndarray):
     """
     length = np.linalg.norm(vector)
     return vector / length
-
-
-# def array_vector_normalize(vectors: np.ndarray):
-#     """
-#     Normalizing vectors.
-
-#     :param vectors: The vectors to be normalized.
-#     """
-#     length = np.linalg.norm(vectors, axis=1)
-#     return vectors / length
 
 
 def rotate(
@@ -304,9 +294,7 @@ def array_triangle_clip_against_plane(
     triangles: np.ndarray,
     colors: np.ndarray,
     clip_debug: bool,
-) -> tuple[
-    np.ndarray, np.ndarray, np.ndarray
-]:  # tuple[np.NDArray[Any], np.NDArray[Any], np.NDArray[Any]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Clipping all the triangle against the plane.
     Returns a tuple of all indices, verticies and colors that are clipped.

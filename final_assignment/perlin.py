@@ -1,3 +1,9 @@
+"""
+Code that calculates perlin noise.
+
+@Author Mathilde Borsodi Hegna
+"""
+
 from math import ceil
 import numpy as np
 from numba import njit
