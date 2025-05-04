@@ -30,7 +30,7 @@ from midpoint import midpoint_2d
 from ray_tracing import form_factors_raytrace, get_visible_triangles
 import numpy as np
 import pyglet
-from pyglet.graphics import Batch
+from pyglet.graphics import Batch, Group
 from pyglet.window import key, Window
 from pyglet.shapes import Line, Triangle
 from quaternions import Quaternion
@@ -157,6 +157,8 @@ class Ray_tracing_model_3d:
         self.centroid_array = np.array([])
         self.next_line_index = 0
         self.next_triangle_index = 0
+        self.triangle_group = Group(0)
+        self.line_group = Group(1)
 
     def prepare(self) -> None:
         """
@@ -282,37 +284,45 @@ class Ray_tracing_model_3d:
                 vertex3[1],
                 color=tuple(color),
                 batch=self.batch,
+                group=self.triangle_group,
             )
             self.triangles.append(triangle)
             self.next_triangle_index += 1
 
         # Debugging helpers
         if self.wireframe:
-            if self.next_line_index < len(self.lines):
-                line = self.lines[self.next_line_index]
-                line.x = vertex1[0]
-                line.y = vertex1[1]
-                line.x2 = vertex2[0]
-                line.y2 = vertex2[1]
-                line.visible = True
-                self.next_line_index += 1
-            else:
-                self.lines.append(
-                    Line(
-                        vertex1[0], vertex1[1], vertex2[0], vertex2[1], batch=self.batch
-                    )
+            self.build_line(vertex1, vertex2)
+            self.build_line(vertex2, vertex3)
+            self.build_line(vertex1, vertex3)
+
+    def build_line(
+        self,
+        vertex1: np.ndarray,
+        vertex2: np.ndarray,
+        color: tuple[int, int, int] = (255, 255, 255),
+    ):
+        if self.next_line_index < len(self.lines):
+            line = self.lines[self.next_line_index]
+            line.x = vertex1[0]
+            line.y = vertex1[1]
+            line.x2 = vertex2[0]
+            line.y2 = vertex2[1]
+            line.color = color
+            line.visible = True
+            self.next_line_index += 1
+        else:
+            self.lines.append(
+                Line(
+                    vertex1[0],
+                    vertex1[1],
+                    vertex2[0],
+                    vertex2[1],
+                    color=color,
+                    batch=self.batch,
+                    group=self.line_group,
                 )
-                self.lines.append(
-                    Line(
-                        vertex2[0], vertex2[1], vertex3[0], vertex3[1], batch=self.batch
-                    )
-                )
-                self.lines.append(
-                    Line(
-                        vertex1[0], vertex1[1], vertex3[0], vertex3[1], batch=self.batch
-                    )
-                )
-                self.next_line_index += 1
+            )
+            self.next_line_index += 1
 
     def build_triangles(
         self,
@@ -340,7 +350,7 @@ class Ray_tracing_model_3d:
         if self.visability_check:
             visible_triangles = get_visible_triangles(
                 camera_position=np.array([0, 0, -10]),
-                camera_direction=np.array([0, 0, 0.1]),
+                # camera_direction=np.array([0, 0, 0.1]),
                 triangle_indices=triangle_indices,
                 vertices=vertices,
                 centroids=centroids,
@@ -571,9 +581,11 @@ class Ray_tracing_model_3d:
         if raytrace:
             # rng = np.random.default_rng(123)
             self.form_factor_array = form_factors_raytrace(
-                self.vertices,
-                self.triangle_indices,
-                n_rays,  # rng
+                vertices=self.vertices,
+                triangles_indices=self.triangle_indices,
+                centroids=self.centroid_array,
+                normals=self.normal_array,
+                n_rays=n_rays,
             )
         else:
             num_triangles = len(self.triangle_indices)
@@ -581,7 +593,7 @@ class Ray_tracing_model_3d:
 
             self.centroids_array = np.zeros((num_triangles, 3))
             for i in range(num_triangles):
-                self.centroids_array[i] = np.mean(
+                self.centroid_array[i] = np.mean(
                     self.vertices[self.triangle_indices[i]], axis=0
                 )
 
@@ -784,7 +796,7 @@ def main() -> None:
         reflect=np.array([0.8, 0.5, 0.3]),
         translation_vector=np.array([cube_size / 2, 0, 0]),  # Right position
         rotation_axis=np.array([0, 1, 0]),
-        rotation_angle=-np.pi / 2,  # -90 degree rotation
+        rotation_angle=-np.pi / 2,  # -90 degree rotatio
     )
     cube.add_model(right_wall)
 
@@ -797,7 +809,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.4, 0.5, 0.3]),
+        reflect=np.array([0.8, 0.5, 0.3]),
         translation_vector=np.array([-cube_size / 2, 0, 0]),  # Left position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -844,42 +856,120 @@ def main() -> None:
     # USED AI TO GENRATE COLUMNS
     column_size = 25
     column_height = cube_size - 5
-    column_division = 4
+    column_division = 5
     reflectance_gray = np.array([0.2, 0.2, 0.2])  # Medium gray
 
-    # Offsets to place columns toward corners
     column_offset = cube_size / 2 - column_size
+    # Offsets to place columns toward corners
+    base_position = np.array([column_offset, 0, column_offset])
 
-    # 4 corner positions
-    column_positions = [
-        np.array([column_offset, 0, column_offset]),  # Front right
-    ]
+    # Column 1 - Front face
+    column1_front = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([0, 0, -column_size / 2]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=0,
+        flip_normals=True,
+        # For flipping normals, you can modify the model_rect function to include
+        # a flip_normal parameter, or manipulate the vertex order after creation
+    )
+    cube.add_model(column1_front)
 
-    for pos in column_positions:
-        for i in range(4):
-            angle = i * np.pi / 2
-            face_translation = pos + np.array(
-                [
-                    column_size / 2 * np.sin(angle) - 10,
-                    0,
-                    column_size / 2 * np.cos(angle) - 5,
-                ]
-            )
+    # Column 1 - Right face
+    column1_right = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([column_size / 2, 0, 0]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=-np.pi / 2,
+    )
+    cube.add_model(column1_right)
 
-            column_face = cube.model_rect(
-                -column_size / 2,
-                column_size / 2,
-                column_division,
-                -column_height / 2,
-                column_height / 2,
-                column_division,
-                emission=np.array([0.0, 0.0, 0.0]),
-                reflect=reflectance_gray,
-                translation_vector=face_translation,
-                rotation_axis=np.array([0, 1, 0]),
-                rotation_angle=-angle,
-            )
-            cube.add_model(column_face)
+    # Column 1 - Back face
+    column1_back = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([0, 0, column_size / 2]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=np.pi,
+    )
+    cube.add_model(column1_back)
+
+    # Column 1 - Left face
+    column1_left = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([-column_size / 2, 0, 0]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=np.pi / 2,
+        flip_normals=True,
+    )
+    cube.add_model(column1_left)
+
+    # # USED AI TO GENRATE COLUMNS
+    # column_size = 25
+    # column_height = cube_size - 5
+    # column_division = 4
+    # reflectance_gray = np.array([0.2, 0.2, 0.2])  # Medium gray
+
+    # # Offsets to place columns toward corners
+    # column_offset = cube_size / 2 - column_size
+
+    # # 4 corner positions
+    # column_positions = [
+    #     np.array([column_offset, 0, column_offset]),  # Front right
+    # ]
+
+    # for pos in column_positions:
+    #     for i in range(4):
+    #         angle = i * np.pi / 2
+    #         face_translation = pos + np.array(
+    #             [
+    #                 column_size / 2 * np.sin(angle) - 10,
+    #                 0,
+    #                 column_size / 2 * np.cos(angle) - 5,
+    #             ]
+    #         )
+
+    #         column_face = cube.model_rect(
+    #             -column_size / 2,
+    #             column_size / 2,
+    #             column_division,
+    #             -column_height / 2,
+    #             column_height / 2,
+    #             column_division,
+    #             emission=np.array([0.0, 0.0, 0.0]),
+    #             reflect=reflectance_gray,
+    #             translation_vector=face_translation,
+    #             rotation_axis=np.array([0, 1, 0]),
+    #             rotation_angle=-angle,
+    #         )
+    #         cube.add_model(column_face)
 
     light_size = 30
     light_division = 4
