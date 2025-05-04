@@ -1,7 +1,8 @@
 import numpy as np
 from numpy import typing as npt
 from typing import Any
-from numpy import random
+
+# from numpy import random
 from numba import njit
 
 
@@ -28,7 +29,7 @@ def barycentric_to_cartesian(
     py = ((1 - b2 - b3) * vertex0[1]) + b2 * vertex1[1] + b3 * vertex2[1]
     pz = ((1 - b2 - b3) * vertex0[2]) + b2 * vertex1[2] + b3 * vertex2[2]
 
-    return np.array([px, py, pz])
+    return np.array([px, py, pz], dtype=np.float64)
 
 
 @njit
@@ -45,9 +46,9 @@ def normalize_vector(
 
 
 # FIX RANDOM, np.random.rand()
-# @njit
+@njit
 def random_rays(
-    rng: random.Generator,
+    # rng: random.Generator,
     vertex0: npt.NDArray[np.floating[Any]],
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
@@ -62,30 +63,35 @@ def random_rays(
     # Orthonormal basis for surface, with third component the normal component
     edge2_normalized = np.cross(normal, edge1_normalized)
 
-    matrix = np.array([edge1_normalized, edge2_normalized, normal]).T
+    matrix = np.zeros((3, 3), dtype=np.float64)
+    # matrix = np.array([edge1_normalized, edge2_normalized, normal], dtype=np.float64).T
+    for i in range(3):
+        matrix[0, i] = edge1_normalized[i]
+        matrix[1, i] = edge2_normalized[i]
+        matrix[2, i] = normal[i]
 
     # Generate n_rays random polar and azimuthal angles.
-    theta = (
-        np.pi * rng.random(size=n_rays) / 2
-    )  # (np.random.rand(1) * n_rays) / 2  # rng.random(size=n_rays) / 2
+    theta = np.pi * np.random.random(n_rays) / 2  # rng.random(size=n_rays) / 2
     phi = (
-        2 * np.pi * rng.random(size=n_rays)
+        2 * np.pi * np.random.random(n_rays)  # rng.random(size=n_rays)
     )  # (np.random.rand(1) * n_rays)  # rng.random(size=n_rays)
-    ray_angles = np.array(
-        [np.sin(phi) * np.sin(theta), np.cos(phi) * np.sin(theta), np.cos(theta)]
-    )
+
+    ray_angles = np.zeros((3, n_rays), dtype=np.float64)
+    ray_angles[0, :] = np.sin(phi) * np.sin(theta)
+    ray_angles[1, :] = np.cos(phi) * np.sin(theta)
+    ray_angles[2, :] = np.cos(theta)
+    # ray_angles = np.array(
+    #     [np.sin(phi) * np.sin(theta), np.cos(phi) * np.sin(theta), np.cos(theta)],
+    #     dtype=np.float64,
+    # )
 
     # Transform to 3d coordinates in the standard basis
     ray_vectors = matrix @ ray_angles
 
     # Uniformly distributed random points inside a triangle.
-    barycentric1_array = rng.random(size=n_rays)  # np.random.rand(1) * n_rays
-    barycentric2_array = rng.random(
-        size=n_rays
-    )  # np.random.rand(1) * n_rays  # rng.random(size=n_rays)
-    barycentric3_array = rng.random(
-        size=n_rays
-    )  # np.random.rand(1) * n_rays  # rng.random(size=n_rays)
+    barycentric1_array = np.random.random(n_rays)  # rng.random(size=n_rays)
+    barycentric2_array = np.random.random(n_rays)  # rng.random(size=n_rays)
+    barycentric3_array = np.random.random(n_rays)  # rng.random(size=n_rays)
 
     # Normalize barycentric coordinates
     sum_bary = barycentric1_array + barycentric2_array + barycentric3_array
@@ -108,6 +114,7 @@ def random_rays(
     return ray_positions, ray_vectors.T
 
 
+@njit
 def ray_triangle_intersection(
     ray_origin: npt.NDArray[np.floating[Any]],
     ray_direction: npt.NDArray[np.floating[Any]],
@@ -152,6 +159,7 @@ def ray_triangle_intersection(
     return intersection_point, t  # intersection_point
 
 
+@njit
 def has_ray_triangle_intersected(
     ray_origin: npt.NDArray[np.floating[Any]],
     ray_direction: npt.NDArray[np.floating[Any]],
@@ -165,20 +173,22 @@ def has_ray_triangle_intersected(
     return intersection is not None, t
 
 
+@njit
 def form_factors_raytrace(
     vertices: npt.NDArray[np.floating[Any]],
     triangles_indices: npt.NDArray[np.int64],
     n_rays: int,
-    rng: random.Generator,
+    # rng: random.Generator,
 ) -> npt.NDArray[np.floating[Any]]:
-    ray_size = np.size(triangles_indices, axis=0)
-    form_factor = np.zeros((ray_size, ray_size))
+    # ray_size = np.size(triangles_indices, axis=0)
+    ray_size = triangles_indices.shape[0]
+    form_factor = np.zeros((ray_size, ray_size), dtype=np.float64)
     for i, ray_index_i in enumerate(triangles_indices):
         v0_i = vertices[ray_index_i[0]]
         v1_i = vertices[ray_index_i[1]]
         v2_i = vertices[ray_index_i[2]]
         # generate n rays from random points x in element i, in random directions r
-        ray_positions, ray_vectors = random_rays(rng, v0_i, v1_i, v2_i, n_rays)
+        ray_positions, ray_vectors = random_rays(v0_i, v1_i, v2_i, n_rays)
 
         # hits = np.zeros(ray_size)
         # find out which element (if any) each ray hits
@@ -186,7 +196,7 @@ def form_factors_raytrace(
             ray_origin = ray_positions[ray_idx]
             ray_direction = ray_vectors[ray_idx]
 
-            closest_distance = float("inf")
+            closest_distance = np.inf  # float("inf")
             closest_element = -1
             for j, ray_index_j in enumerate(triangles_indices):
                 if i == j:  # Skip self-intersection
@@ -210,54 +220,135 @@ def form_factors_raytrace(
     return form_factor
 
 
+@njit
 def is_triangle_visible(
     triangle_index: int,
     triangle_indices: np.ndarray,
-    temporary_vertices: np.ndarray,
+    vertices: np.ndarray,
     camera_position: np.ndarray = np.array([0, 0, -10]),
+    epsilon: float = 1e-10,
 ) -> bool:
     """
     Check if a triangle is visible from the camera position.
+
+    NOT OPTIMISED
     """
     vertex_indices = triangle_indices[triangle_index]
+    v0 = vertices[vertex_indices[0]]
+    v1 = vertices[vertex_indices[1]]
+    v2 = vertices[vertex_indices[2]]
 
-    for index in vertex_indices:
-        vertices = temporary_vertices[index]
+    # centroid = np.mean(vertices, axis=0)
+    centroid = (v0 + v1 + v2) / 3.0
+    # Vector from camera to centroid
+    direction_to_centroid = normalize_vector(centroid - camera_position)
 
-    vertices = np.array(
-        [
-            temporary_vertices[vertex_indices[0]],
-            temporary_vertices[vertex_indices[1]],
-            temporary_vertices[vertex_indices[2]],
-        ]
-    )
-    # vertices = [temporary_vertices[idx] for idx in vertex_indices]
-
-    # Calculate the centroid of the triangle
-    centroid = np.mean(vertices, axis=0)
-
-    # Calculate direction from camera to centroid
-    direction = normalize_vector(centroid - camera_position)
+    # Distance from camera to centroid
+    centroid_distance = np.linalg.norm(centroid - camera_position)
 
     # Check if any other triangle is between the camera and this triangle
     for i, indices in enumerate(triangle_indices):
         if i == triangle_index:
             continue  # Skip self
 
-        v0 = temporary_vertices[indices[0]]
-        v1 = temporary_vertices[indices[1]]
-        v2 = temporary_vertices[indices[2]]
+        other_v0 = vertices[indices[0]]
+        other_v1 = vertices[indices[1]]
+        other_v2 = vertices[indices[2]]
 
         hit, distance = has_ray_triangle_intersected(
-            camera_position, direction, v0, v1, v2
+            camera_position, direction_to_centroid, other_v0, other_v1, other_v2
         )
-
-        # Calculate distance to the centroid
-        centroid_distance = np.linalg.norm(centroid - camera_position)
 
         # If we hit another triangle that's closer than our target,
         # then our target triangle is occluded
-        if hit and distance < centroid_distance:
+        if hit and distance < centroid_distance - epsilon:
             return False
 
     return True
+
+
+@njit
+def get_visible_triangles(
+    triangle_indices: np.ndarray,
+    vertices: np.ndarray,
+    camera_position: np.ndarray,
+) -> np.ndarray:
+    """
+    FILL INN
+
+    :param triangle_indices:
+    :param vertices:
+    :param camera_position:
+    """
+
+    # Pre fill
+    num_triangles = len(triangle_indices)
+    visible = np.ones(num_triangles, dtype=np.bool_)
+    centroids = np.zeros((num_triangles, 3), dtype=np.float64)
+    directions = np.zeros((num_triangles, 3), dtype=np.float64)
+    distances = np.zeros(num_triangles, dtype=np.float64)
+
+    # Pre-compute centroids and directions for all triangles
+    for i in range(num_triangles):
+        indices = triangle_indices[i]
+        vec0 = vertices[indices[0]]
+        vec1 = vertices[indices[1]]
+        vec2 = vertices[indices[2]]
+
+        # Calculate centroid
+        centroid = (vec0 + vec1 + vec2) / 3.0
+        centroids[i] = centroid
+
+        # Calculate direction and distance
+        direction = centroid - camera_position
+        distances[i] = np.linalg.norm(direction)
+        directions[i] = direction / distances[i]  # Normalize
+
+    # Sort triangles by distance, the same as for distance check for which triangle to show first
+    sorted_indices = np.argsort(distances)
+
+    # Check visibility for each triangle
+    for i in range(num_triangles):
+        triangle_index = sorted_indices[i]
+
+        # If already marked as invisible, skip
+        if not visible[triangle_index]:
+            continue
+
+        # Get data for current triangle
+        centroid = centroids[triangle_index]
+        direction = directions[triangle_index]
+
+        # This part I got help from AI: occlude check
+        # Check if this triangle occludes any farther triangles
+        for j in range(i + 1, num_triangles):
+            occluded_index = sorted_indices[j]
+
+            # If already marked as invisible, skip
+            if not visible[occluded_index]:
+                continue
+
+            # Vector from camera to farther triangle
+            far_direction = directions[occluded_index]
+
+            # Angle between the two vectors
+            angle = np.dot(direction, far_direction)
+
+            # If the angle is small enough, the triangles might occlude each other
+            if angle > 0.99:  # Threshold value
+                # Get triangle vertices for accurate intersection test
+                indices = triangle_indices[triangle_index]
+                vec0 = vertices[indices[0]]
+                vec1 = vertices[indices[1]]
+                vec2 = vertices[indices[2]]
+
+                # Check if the ray to the farther triangle intersects this triangle
+                hit, hit_dist = has_ray_triangle_intersected(
+                    camera_position, far_direction, vec0, vec1, vec2
+                )
+
+                # If there's a hit and it's closer than the farther triangle
+                if hit and hit_dist < distances[occluded_index]:
+                    visible[occluded_index] = False
+
+    return visible
