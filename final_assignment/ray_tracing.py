@@ -202,6 +202,8 @@ def has_ray_triangle_intersected(
 def form_factors_raytrace(
     vertices: npt.NDArray[np.floating[Any]],
     triangles_indices: npt.NDArray[np.int64],
+    normals: np.ndarray,
+    centroids: np.ndarray,
     n_rays: int,
 ) -> npt.NDArray[np.floating[Any]]:
     """
@@ -227,7 +229,8 @@ def form_factors_raytrace(
             ray_origin = ray_positions[ray_idx]
             ray_direction = ray_vectors[ray_idx]
 
-            closest_distance = np.inf
+            # closest_distance = np.inf
+            min_occlusion_distance = np.inf
             closest_element = -1
             for j, ray_index_j in enumerate(triangles_indices):
                 if i == j:  # Skip self-intersection
@@ -237,13 +240,27 @@ def form_factors_raytrace(
                 v1_j = vertices[ray_index_j[1]]
                 v2_j = vertices[ray_index_j[2]]
 
+                dot_product = np.dot(ray_direction, normals[j])
+                if dot_product >= 0:  # Triangle is facing away or perpendicular
+                    continue
+
                 hit, distance = has_ray_triangle_intersected(
                     ray_origin, ray_direction, v0_j, v1_j, v2_j
                 )
 
-                if hit and distance < closest_distance:
-                    closest_distance = distance
-                    closest_element = j
+                # if hit and distance < closest_distance:
+                #     closest_distance = distance
+                #     closest_element = j
+
+                if hit:
+                    centroid_vector = centroids[j] - ray_origin
+                    centroid_distance = np.sqrt(
+                        np.sum(centroid_vector * centroid_vector)
+                    )
+
+                    if centroid_distance < min_occlusion_distance:
+                        min_occlusion_distance = centroid_distance
+                        closest_element = j
 
             if closest_element != -1:
                 form_factor[i, closest_element] += 1.0 / n_rays
@@ -301,7 +318,7 @@ def is_triangle_visible(
 @njit
 def get_visible_triangles(
     camera_position: np.ndarray,
-    camera_direction: np.ndarray,
+    # camera_direction: np.ndarray,
     triangle_indices: np.ndarray,
     vertices: np.ndarray,
     centroids: np.ndarray,
