@@ -49,7 +49,6 @@ class int8(uint8):
 
     @classmethod
     def integer(cls, n: int | list) -> "int8":  # 7 points
-
         # Convert for list
         if isinstance(n, list):
             return cls(n)

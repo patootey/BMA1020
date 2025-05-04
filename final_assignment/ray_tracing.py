@@ -264,53 +264,6 @@ def form_factors_raytrace(
     return form_factor
 
 
-# @njit
-# def is_triangle_visible(
-#     triangle_index: int,
-#     triangle_indices: np.ndarray,
-#     vertices: np.ndarray,
-#     camera_position: np.ndarray = np.array([0, 0, -10], dtype=np.float64),
-#     epsilon: float = 1e-10,
-# ) -> bool:
-#     """
-#     Check if a triangle is visible from the camera position.
-
-#     NOT OPTIMISED
-#     """
-#     vertex_indices = triangle_indices[triangle_index]
-#     v0 = vertices[vertex_indices[0]]
-#     v1 = vertices[vertex_indices[1]]
-#     v2 = vertices[vertex_indices[2]]
-
-#     # centroid = np.mean(vertices, axis=0)
-#     centroid = (v0 + v1 + v2) / 3.0
-#     # Vector from camera to centroid
-#     direction_to_centroid = normalize_vector(centroid - camera_position)
-
-#     # Distance from camera to centroid
-#     centroid_distance = np.linalg.norm(centroid - camera_position)
-
-#     # Check if any other triangle is between the camera and this triangle
-#     for i, indices in enumerate(triangle_indices):
-#         if i == triangle_index:
-#             continue  # Skip self
-
-#         other_v0 = vertices[indices[0]]
-#         other_v1 = vertices[indices[1]]
-#         other_v2 = vertices[indices[2]]
-
-#         hit, distance = has_ray_triangle_intersected(
-#             camera_position, direction_to_centroid, other_v0, other_v1, other_v2
-#         )
-
-#         # If we hit another triangle that's closer than our target,
-#         # then our target triangle is occluded
-#         if hit and distance < centroid_distance - epsilon:
-#             return False
-
-#     return True
-
-
 @njit
 def get_visible_triangles(
     camera_position: np.ndarray,
@@ -368,7 +321,6 @@ def get_visible_triangles(
         # Get data for current triangle
         direction = directions[triangle_index]
 
-        # This part I got help from AI
         # Check if this triangle occludes any farther triangles
         for j in range(i + 1, num_triangles):
             occluded_index = sorted_indices[j]
@@ -383,6 +335,7 @@ def get_visible_triangles(
             # Angle between the two vectors
             angle = np.dot(direction, far_direction)
 
+            # This part I got help from AI (angle check)
             # If the angle is small enough, the triangles might occlude each other
             if angle > 0.99:  # Threshold value
                 # Check if the ray to the farther triangle intersects this triangle

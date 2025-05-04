@@ -17,29 +17,26 @@ Debug:
 @Author Mathilde Borsodi Hegna
 """
 
+import pyglet
+from pyglet.window import key, Window
+from pyglet.graphics import Batch, Group
+from pyglet.shapes import Line, Triangle
+import numpy as np
 from contextlib import contextmanager
-
-# from dataclasses import dataclass
 from datetime import datetime
-
 from pyglet.sprite import Sprite
+from pyglet.gl import GLubyte
+import perlin
+from midpoint import midpoint_2d
+from rgb_converting import LMS_to_RGB
+from ray_tracing import form_factors_raytrace, get_visible_triangles
+from quaternions import Quaternion
 from global_functions import (
     array_triangle_clip_against_plane,
     array_project_screen,
     rotate,
     translate,
 )
-from midpoint import midpoint_2d
-from ray_tracing import form_factors_raytrace, get_visible_triangles
-import numpy as np
-import pyglet
-from pyglet.graphics import Batch, Group
-from pyglet.window import key, Window
-from pyglet.shapes import Line, Triangle
-from quaternions import Quaternion
-from rgb_converting import LMS_to_RGB
-import perlin
-from pyglet.gl import GLubyte
 
 # Global variables
 g_window_width = 800
@@ -74,7 +71,6 @@ class PerlinNoise:
         :param alpha: The alpha channel value
         """
         color_channel = self.noise * 255
-
         # Generate an alpha channel
         alpha_channel = alpha * np.ones((self.height, self.width))
 
@@ -84,7 +80,6 @@ class PerlinNoise:
         ).astype(np.uint32)
 
         greyscale = greyscale.reshape(self.height * self.width * 4)
-
         # convert the bitmap to a form pyglet can read
         byte_data = bytes((GLubyte * greyscale.size)(*greyscale.astype("uint8")))
 
@@ -92,7 +87,6 @@ class PerlinNoise:
         img = pyglet.image.ImageData(
             self.width, self.height, "RGBA", byte_data, pitch=self.width * 4
         )
-
         # set the noise into a sprite for displaying in the pyglet application
         return pyglet.sprite.Sprite(img=img)
 
@@ -373,7 +367,6 @@ class Ray_tracing_model_3d:
                 centroids=centroids,
                 normals=normals,
             )
-
             # Filter triangles using visibility check
             visible_indices = triangle_indices[visible_triangles]
             visible_colors = colors[visible_triangles]
@@ -582,10 +575,8 @@ class Ray_tracing_model_3d:
         """
         Compute the form factor ray trace for all triangle pairs.
 
-
         :param n_rays: Number of random rays to send out.
         """
-
         self.form_factor_array = form_factors_raytrace(
             vertices=self.vertices,
             triangles_indices=self.triangle_indices,
@@ -603,13 +594,11 @@ class Ray_tracing_model_3d:
         :param num_iterations: Number of iterations for the radiosity computation.
         :return: A array of RGB luminance values.
         """
-
-        # num_triangles = len(self.triangle_indices)
         radiosity_array = self.emit_array.copy()
         initial_emission_array = self.emit_array.copy()
 
-        # Create a mask to exclude diagonal elements (i==j)
         # HJELP AV AI
+        # Create a mask to exclude diagonal elements (i==j)
         non_diagonal = np.ones(
             (len(self.triangle_indices), len(self.triangle_indices)), dtype=bool
         )
@@ -701,7 +690,7 @@ def main() -> None:
     )
 
     cube_size = 125
-    cube_divisions = 8
+    cube_divisions = 10
     offset = 75
     # Front wall
     front_wall = cube.model_rect(
@@ -898,7 +887,7 @@ def main() -> None:
         light_division,
         emission=np.array([100.0, 100.0, 100.0]),
         reflect=np.array([0.0, 0.0, 0.0]),
-        translation_vector=np.array([0, cube_size / 2 - 2, 80]),
+        translation_vector=np.array([0, cube_size / 2 - 7, 80]),
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,
     )

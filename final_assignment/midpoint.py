@@ -85,7 +85,7 @@ def midpoint_2d(
     # Recursively apply to the four quadrants
     if grid_n > 1:
         # Decrease scale for lower levels
-        rand_scale_max = max(rand_scale * 0.6, 0.2)
+        rand_scale_max = max(rand_scale * 0.9, 0.2)
         midpoint_2d(
             heightmap, i, j, (grid_n - 1), rand_scale_max, terrain_roughness
         )  # Top-left
