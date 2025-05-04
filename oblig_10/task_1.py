@@ -48,7 +48,12 @@ class int8(uint8):
         return int8(super().__mul__(other).bits)
 
     @classmethod
-    def integer(cls, n: int) -> "int8":  # 7 points
+    def integer(cls, n: int | list) -> "int8":  # 7 points
+
+        # Convert for list
+        if isinstance(n, list):
+            return cls(n)
+
         if n < 0:
             # Convert to positive, then negate
             return -cls(uint8.integer(-n).bits)
@@ -64,7 +69,7 @@ if __name__ == "__main__":
     print("x1 * y1:", x1 * y1)
 
     # Test int8
-    x2 = int8([True, False, False, False, True, False, True, False])
+    x2 = int8.integer([True, False, False, False, True, False, True, False])
     y2 = int8.integer(4)
     z2 = int8.integer(-2)
 
