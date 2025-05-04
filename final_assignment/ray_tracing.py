@@ -19,9 +19,9 @@ def barycentric_to_cartesian(
     B1 is not needed in the formula, can be computed:
         B1 + B2 + B3 = 1
 
-    :param vertex0: X-coordinate.
-    :param vertex1: Y-coordinate.
-    :param vertex2: Z-coordinate.
+    :param vertex0:
+    :param vertex1:
+    :param vertex2:
     :param b2:
     :param b3:
     """
@@ -45,15 +45,21 @@ def normalize_vector(
     return vector / length
 
 
-# FIX RANDOM, np.random.rand()
 @njit
 def random_rays(
-    # rng: random.Generator,
     vertex0: npt.NDArray[np.floating[Any]],
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
     n_rays: int,
 ) -> tuple[npt.NDArray[np.floating[Any]], npt.NDArray[np.floating[Any]]]:
+    """
+    Generate random rays originating from random points on a triangle surface.
+
+    :param vertex0: First vertex of the triangle.
+    :param vertex1: Second vertex of the triangle.
+    :param vertex2: Third vertex of the triangle.
+    :param n_rays: Number of rays to generate.
+    """
     edge1 = vertex1 - vertex0
     edge2 = vertex2 - vertex0
     normal = normalize_vector(np.cross(edge1, edge2))
@@ -123,6 +129,16 @@ def ray_triangle_intersection(
     vertex2: npt.NDArray[np.floating[Any]],
     epsilon: float = 1e-10,
 ) -> tuple[npt.NDArray[np.floating[Any]] | None, float]:
+    """
+    Calculate the intersection point between a ray and a triangle.
+
+    :param ray_origin: Origin point of the ray.
+    :param ray_direction: Direction vector of the ray.
+    :param vertex0: First vertex of the triangle.
+    :param vertex1: Second vertex of the triangle.
+    :param vertex2: Third vertex of the triangle.
+    :param epsilon: Small value to handle floating point precision issues.
+    """
     edge_a = vertex1 - vertex0
     edge_b = vertex2 - vertex0
 
@@ -167,6 +183,15 @@ def has_ray_triangle_intersected(
     vertex1: npt.NDArray[np.floating[Any]],
     vertex2: npt.NDArray[np.floating[Any]],
 ) -> tuple[bool, float]:
+    """
+    Check if a ray intersects with a triangle and return the distance to the intersection.
+
+    :param ray_origin: Origin point of the ray.
+    :param ray_direction: Direction vector of the ray.
+    :param vertex0: First vertex of the triangle.
+    :param vertex1: Second vertex of the triangle.
+    :param vertex2: Third vertex of the triangle.
+    """
     intersection, t = ray_triangle_intersection(
         ray_origin, ray_direction, vertex0, vertex1, vertex2
     )
@@ -178,8 +203,14 @@ def form_factors_raytrace(
     vertices: npt.NDArray[np.floating[Any]],
     triangles_indices: npt.NDArray[np.int64],
     n_rays: int,
-    # rng: random.Generator,
 ) -> npt.NDArray[np.floating[Any]]:
+    """
+    Calculate form factors between triangles.
+
+    :param verticies: Array of verticies.
+    :param triangles_indices: Array of triangle indices.
+    :param n_rays: Number of rays to calculate.
+    """
     # ray_size = np.size(triangles_indices, axis=0)
     ray_size = triangles_indices.shape[0]
     form_factor = np.zeros((ray_size, ray_size), dtype=np.float64)
@@ -196,7 +227,7 @@ def form_factors_raytrace(
             ray_origin = ray_positions[ray_idx]
             ray_direction = ray_vectors[ray_idx]
 
-            closest_distance = np.inf  # float("inf")
+            closest_distance = np.inf
             closest_element = -1
             for j, ray_index_j in enumerate(triangles_indices):
                 if i == j:  # Skip self-intersection

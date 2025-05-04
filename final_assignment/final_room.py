@@ -148,7 +148,7 @@ class Ray_tracing_model_3d:
         self.form_factor_array: np.ndarray = np.array([])
 
         # self.ray_trace = False
-        self.centroids = np.array([])
+        self.centroids_array = np.array([])
 
         self.visability_check = False
 
@@ -274,8 +274,6 @@ class Ray_tracing_model_3d:
         vertex2: np.ndarray,
         vertex3: np.ndarray,
         color: np.ndarray,
-        # NEW
-        vis_check=True,
     ) -> None:
         """
         Building one triangle shape by projecting the vertex to the camera and transform to the viewport.
@@ -349,8 +347,6 @@ class Ray_tracing_model_3d:
         self,
         window_width: int,
         window_height: int,
-        # NEW
-        # vis_check=True,
     ) -> None:
         """
         Builds all the triangles for the viewport.
@@ -640,14 +636,14 @@ class Ray_tracing_model_3d:
             num_triangles = len(self.triangle_indices)
             self.form_factor_array = np.zeros((num_triangles, num_triangles))
 
-            self.centroids = np.zeros((num_triangles, 3))
+            self.centroids_array = np.zeros((num_triangles, 3))
             for i in range(num_triangles):
-                self.centroids[i] = np.mean(
+                self.centroids_array[i] = np.mean(
                     self.vertices[self.triangle_indices[i]], axis=0
                 )
 
-            centroids_i = self.centroids[:, np.newaxis, :]
-            centroids_j = self.centroids[np.newaxis, :, :]
+            centroids_i = self.centroids_array[:, np.newaxis, :]
+            centroids_j = self.centroids_array[np.newaxis, :, :]
 
             r_vectors = centroids_j - centroids_i
 
@@ -953,7 +949,7 @@ def main() -> None:
         -light_size / 2,
         light_size / 2,
         light_division,
-        emission=np.array([10.0, 10.0, 10.0]),  # Bright white light
+        emission=np.array([100.0, 100.0, 100.0]),  # Bright white light
         reflect=np.array([0.0, 0.0, 0.0]),
         translation_vector=np.array(
             [0, cube_size / 2 - 2, 80]
@@ -975,14 +971,12 @@ def main() -> None:
     #     reflect=np.array([0.3, 0.0, 0.2]),
     # )
 
-    # visability_check: bool = True
-
     print("Update geometry...")
     cube.update_geometry()
 
     with measure_duration("Form factor duration: ", True):
         print("Calculating form factors...")
-        cube.update_form_factors(raytrace=False, n_rays=100)
+        cube.update_form_factors(raytrace=True, n_rays=120)
 
     with measure_duration("Color duration: ", True):
         print("Calculating light luminances...")
