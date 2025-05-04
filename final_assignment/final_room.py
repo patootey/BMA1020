@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from global_functions import array_triangle_clip_against_plane, array_project_screen
 from midpoint import midpoint_2d
-from ray_tracing import form_factors_raytrace, is_triangle_visible
+from ray_tracing import form_factors_raytrace, get_visible_triangles
 import numpy as np
 import pyglet
 from pyglet.graphics import Batch
@@ -149,6 +149,8 @@ class Ray_tracing_model_3d:
 
         # self.ray_trace = False
         self.centroids = np.array([])
+
+        self.visability_check = False
 
     def prepare(self) -> None:
         """
@@ -348,7 +350,7 @@ class Ray_tracing_model_3d:
         window_width: int,
         window_height: int,
         # NEW
-        vis_check=True,
+        # vis_check=True,
     ) -> None:
         """
         Builds all the triangles for the viewport.
@@ -357,14 +359,30 @@ class Ray_tracing_model_3d:
         :param window_width: Window width.
         :param window_height: Window heigth.
         """
+
+        if self.visability_check:
+            # Assuming camera_position is at [0, 0, -10] by default, adjust as needed
+            camera_position = np.array([0, 0, -10])
+            visible_triangles = get_visible_triangles(
+                self.triangle_indices, self.temporary_vertices, camera_position
+            )
+
+            # Filter triangles using visibility mask
+            visible_indices = self.triangle_indices[visible_triangles]
+            visible_colors = self.colors[visible_triangles]
+        else:
+            # Process all triangles if visibility check is disabled
+            visible_indices = self.triangle_indices
+            visible_colors = self.colors
+
         # Originally named: draw
         # Draw the model to the screen
         new_indices, new_vertices, new_colors = array_triangle_clip_against_plane(
             plane_p=np.array([0, 0, 0.1]),
             plane_n=np.array([0, 0, 1]),
             vertices=self.temporary_vertices,
-            triangles=self.triangle_indices,
-            colors=self.colors,
+            triangles=visible_indices,
+            colors=visible_colors,
             clip_debug=self.clip_debug,
         )
 
@@ -392,10 +410,7 @@ class Ray_tracing_model_3d:
 
         sorted_indices = np.argsort(z_values)[::-1]
 
-        # camera_position = np.array([0, 0, 0])
-        # Rebuild the triangles for each edge
         for triangle_index in sorted_indices:
-
             color = new_colors[triangle_index]
             triangle_array: np.ndarray = new_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
@@ -404,16 +419,16 @@ class Ray_tracing_model_3d:
             vertex2 = projected_vertices[vertex2_index]
             vertex3 = projected_vertices[vertex3_index]
 
-            if vis_check:
-                original_triangle_idx = self._get_original_triangle_index(
-                    triangle_index, new_indices
-                )
-                if original_triangle_idx is not None and not is_triangle_visible(
-                    original_triangle_idx,
-                    new_indices,
-                    new_vertices,
-                ):
-                    continue  # Skip drawing this triangle if not visible
+            # if vis_check:
+            #     original_triangle_idx = self._get_original_triangle_index(
+            #         triangle_index, new_indices
+            #     )
+            #     if original_triangle_idx is not None and not is_triangle_visible(
+            #         original_triangle_idx,
+            #         new_indices,
+            #         new_vertices,
+            #     ):
+            #         continue  # Skip drawing this triangle if not visible
 
             # if vis_check:
             #     """
@@ -575,7 +590,6 @@ class Ray_tracing_model_3d:
         self.normal_array = np.zeros((num_triangles, 3))
         self.area_array = np.zeros(num_triangles)
         self.centroid_array = np.zeros((num_triangles, 3))
-        #        self.radius_array = np.zeros(num_triangles)
 
         for i in range(num_triangles):
             # Get indices of the three vertices
@@ -599,19 +613,12 @@ class Ray_tracing_model_3d:
 
             area = normalize / 2
 
-            # Maybe use mean
             centroid = np.mean(np.array([vertex_1, vertex_2, vertex_3]))
-
-            # dist1 = np.linalg.norm(vertex_1 - centroid)
-            # dist2 = np.linalg.norm(vertex_2 - centroid)
-            # dist3 = np.linalg.norm(vertex_3 - centroid)
-            # radius = max(dist1, dist2, dist3)
 
             # Store results
             self.normal_array[i] = normal
             self.area_array[i] = area
             self.centroid_array[i] = centroid
-            # self.radius_array[i] = radius
 
     def update_form_factors(self, raytrace=False, n_rays: int = 10) -> None:  # 5 points
         """
@@ -623,9 +630,11 @@ class Ray_tracing_model_3d:
         """
 
         if raytrace:
-            rng = np.random.default_rng(123)
+            # rng = np.random.default_rng(123)
             self.form_factor_array = form_factors_raytrace(
-                self.vertices, self.triangle_indices, n_rays, rng
+                self.vertices,
+                self.triangle_indices,
+                n_rays,  # rng
             )
         else:
             num_triangles = len(self.triangle_indices)
@@ -799,7 +808,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.1, 0.4, 0.1]),
+        reflect=np.array([0.5, 0.1, 0.7]),
         translation_vector=np.array([0, 0, cube_size / 2 + offset]),  # Front position
         rotation_axis=np.array([0, 0, 1]),
         rotation_angle=0,
@@ -816,7 +825,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.1, 0.4, 0.3]),
+        reflect=np.array([0.0, 0.5, 0.5]),
         translation_vector=np.array([0, 0, -cube_size / 2]),  # Back position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi,  # 180 degree rotation
@@ -833,7 +842,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.1, 0.2, 0.1]),
+        reflect=np.array([0.8, 0.5, 0.3]),
         translation_vector=np.array([cube_size / 2, 0, 0]),  # Right position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -849,7 +858,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.1, 0.2, 0.1]),
+        reflect=np.array([0.4, 0.5, 0.3]),
         translation_vector=np.array([-cube_size / 2, 0, 0]),  # Left position
         rotation_axis=np.array([0, 1, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -865,7 +874,7 @@ def main() -> None:
         cube_size / 2 + offset,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.4, 0.1, 0.1]),
+        reflect=np.array([0.5, 0.3, 0.0]),
         translation_vector=np.array([0, -cube_size / 2, 0]),  # Bottom position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=np.pi / 2,  # 90 degree rotation
@@ -885,7 +894,7 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.5, 0.1, 0.2]),
+        reflect=np.array([0.2, 0.1, 0.2]),
         translation_vector=np.array([0, cube_size / 2, 0]),  # Top position
         rotation_axis=np.array([1, 0, 0]),
         rotation_angle=-np.pi / 2,  # -90 degree rotation
@@ -966,25 +975,25 @@ def main() -> None:
     #     reflect=np.array([0.3, 0.0, 0.2]),
     # )
 
-    visability_check: bool = False
+    # visability_check: bool = True
 
     print("Update geometry...")
     cube.update_geometry()
 
     with measure_duration("Form factor duration: ", True):
         print("Calculating form factors...")
-        cube.update_form_factors(raytrace=True, n_rays=50)
+        cube.update_form_factors(raytrace=False, n_rays=100)
 
     with measure_duration("Color duration: ", True):
         print("Calculating light luminances...")
-        cube.colors = cube.find_colors(num_iterations=50)
+        cube.colors = cube.find_colors(num_iterations=100)
 
     noise = PerlinNoise(
         width=g_window_width,
         height=g_window_height,
     )
 
-    sprite = noise.to_sprite(alpha=25)
+    sprite = noise.to_sprite(alpha=35)
 
     show_duration = False
     show_triangle_count = False
@@ -1078,7 +1087,7 @@ def main() -> None:
             cube.build_triangles(
                 window_width=g_window_width,
                 window_height=g_window_height,
-                vis_check=visability_check,
+                # vis_check=visability_check,
             )
         if show_triangle_count:
             triangle_count_label.text = f"Triangle Count: {cube.next_triangle_index}"
@@ -1091,6 +1100,9 @@ def main() -> None:
         # Turn on different colors for the clipping of triangles
         if symbol == key.F2:
             cube.clip_debug = not cube.clip_debug
+
+        if symbol == key.V:
+            cube.visability_check = not cube.visability_check
 
     g_window.push_handlers(on_key_press)
     pyglet.clock.schedule_interval(update, FRAME_TIME)
