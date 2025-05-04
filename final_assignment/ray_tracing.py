@@ -256,7 +256,7 @@ def is_triangle_visible(
     triangle_index: int,
     triangle_indices: np.ndarray,
     vertices: np.ndarray,
-    camera_position: np.ndarray = np.array([0, 0, -10]),
+    camera_position: np.ndarray = np.array([0, 0, -10], dtype=np.float64),
     epsilon: float = 1e-10,
 ) -> bool:
     """
@@ -300,38 +300,31 @@ def is_triangle_visible(
 
 @njit
 def get_visible_triangles(
+    camera_position: np.ndarray,
     triangle_indices: np.ndarray,
     vertices: np.ndarray,
-    camera_position: np.ndarray,
+    centroids: np.ndarray,
+    normals: np.ndarray,
 ) -> np.ndarray:
     """
     FILL INN
 
+    :param camera_position:
     :param triangle_indices:
     :param vertices:
-    :param camera_position:
+    :param centroids:
+    :param normals:
     """
-
     # Pre fill
     num_triangles = len(triangle_indices)
     visible = np.ones(num_triangles, dtype=np.bool_)
-    centroids = np.zeros((num_triangles, 3), dtype=np.float64)
     directions = np.zeros((num_triangles, 3), dtype=np.float64)
     distances = np.zeros(num_triangles, dtype=np.float64)
 
     # Pre-compute centroids and directions for all triangles
     for i in range(num_triangles):
-        indices = triangle_indices[i]
-        vec0 = vertices[indices[0]]
-        vec1 = vertices[indices[1]]
-        vec2 = vertices[indices[2]]
-
-        # Calculate centroid
-        centroid = (vec0 + vec1 + vec2) / 3.0
-        centroids[i] = centroid
-
         # Calculate direction and distance
-        direction = centroid - camera_position
+        direction = centroids[i] - camera_position
         distances[i] = np.linalg.norm(direction)
         directions[i] = direction / distances[i]  # Normalize
 
@@ -346,8 +339,14 @@ def get_visible_triangles(
         if not visible[triangle_index]:
             continue
 
+        # Get triangle vertices for accurate intersection test
+        indices = triangle_indices[triangle_index]
+        vec0 = vertices[indices[0]]
+        vec1 = vertices[indices[1]]
+        vec2 = vertices[indices[2]]
+
         # Get data for current triangle
-        centroid = centroids[triangle_index]
+        # centroid = centroids[triangle_index]
         direction = directions[triangle_index]
 
         # This part I got help from AI: occlude check
@@ -367,12 +366,6 @@ def get_visible_triangles(
 
             # If the angle is small enough, the triangles might occlude each other
             if angle > 0.99:  # Threshold value
-                # Get triangle vertices for accurate intersection test
-                indices = triangle_indices[triangle_index]
-                vec0 = vertices[indices[0]]
-                vec1 = vertices[indices[1]]
-                vec2 = vertices[indices[2]]
-
                 # Check if the ray to the farther triangle intersects this triangle
                 hit, hit_dist = has_ray_triangle_intersected(
                     camera_position, far_direction, vec0, vec1, vec2

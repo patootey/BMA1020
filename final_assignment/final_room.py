@@ -17,8 +17,15 @@ Debug:
 """
 
 from contextlib import contextmanager
+
+# from dataclasses import dataclass
 from datetime import datetime
-from global_functions import array_triangle_clip_against_plane, array_project_screen
+from global_functions import (
+    array_triangle_clip_against_plane,
+    array_project_screen,
+    rotate,
+    translate,
+)
 from midpoint import midpoint_2d
 from ray_tracing import form_factors_raytrace, get_visible_triangles
 import numpy as np
@@ -78,8 +85,6 @@ class PerlinNoise:
 class Ray_tracing_model_3d:
     vertices: np.ndarray
     "Array of vertex arrays"
-    temporary_vertices: np.ndarray
-    "Temporary copy of vertices for transformation"
     triangle_indices: np.ndarray
     "Array of triangle arrays"
     colors: np.ndarray
@@ -128,7 +133,7 @@ class Ray_tracing_model_3d:
     ) -> None:
         # Previous named: nodes
         self.vertices = vertices
-        self.temporary_vertices = np.array([])
+        # self.temporary_vertices = np.array([])
         # Previous named: elements
         self.triangle_indices = triangle_indices
         self.colors = np.zeros((len(triangle_indices), 3), dtype=np.int32)
@@ -148,7 +153,7 @@ class Ray_tracing_model_3d:
         self.form_factor_array: np.ndarray = np.array([])
 
         # self.ray_trace = False
-        self.centroids_array = np.array([])
+        self.centroid_array = np.array([])
 
         self.visability_check = False
 
@@ -158,7 +163,7 @@ class Ray_tracing_model_3d:
         Initializing temporary properties.
         """
         # Saving the old coordianates of vertices
-        self.temporary_vertices = self.vertices.copy()
+        # self.temporary_vertices = self.vertices.copy()
 
         # Dont show the triangles
         for triangle in self.triangles:
@@ -245,29 +250,6 @@ class Ray_tracing_model_3d:
         self.emit_array = np.delete(self.emit_array, index, axis=0)
         self.reflect_array = np.delete(self.reflect_array, index, axis=0)
 
-    def rotate(self, quaternion: Quaternion) -> None:
-        """
-        Rotate all the vertices by a quaternion.
-
-        :param quaternion: Quaternion object
-        """
-        # up to 25 points, including the quaternion code
-        self.temporary_vertices = quaternion.rotate_vectors(self.temporary_vertices)
-
-    def translate(self, vector: np.ndarray) -> None:  # 10 points
-        """
-        Translating all vertices by the vector.
-
-        :param vector: Vector direction.
-        """
-        if vector.ndim != 1:
-            raise ValueError("Vector must be 1D")
-        if len(vector) != 3:
-            raise ValueError("Vector length must be 3")
-
-        for i in range(len(self.temporary_vertices)):
-            self.temporary_vertices[i] = self.temporary_vertices[i] + vector
-
     def build_triangle(
         self,
         vertex1: np.ndarray,
@@ -347,6 +329,11 @@ class Ray_tracing_model_3d:
         self,
         window_width: int,
         window_height: int,
+        vertices: np.ndarray,
+        centroids: np.ndarray,
+        normals: np.ndarray,
+        triangle_indices: np.ndarray,
+        colors: np.ndarray,
     ) -> None:
         """
         Builds all the triangles for the viewport.
@@ -360,23 +347,27 @@ class Ray_tracing_model_3d:
             # Assuming camera_position is at [0, 0, -10] by default, adjust as needed
             camera_position = np.array([0, 0, -10])
             visible_triangles = get_visible_triangles(
-                self.triangle_indices, self.temporary_vertices, camera_position
+                camera_position,
+                triangle_indices=triangle_indices,
+                vertices=vertices,
+                centroids=centroids,
+                normals=normals,
             )
 
             # Filter triangles using visibility mask
-            visible_indices = self.triangle_indices[visible_triangles]
-            visible_colors = self.colors[visible_triangles]
+            visible_indices = triangle_indices[visible_triangles]
+            visible_colors = colors[visible_triangles]
         else:
             # Process all triangles if visibility check is disabled
-            visible_indices = self.triangle_indices
-            visible_colors = self.colors
+            visible_indices = triangle_indices
+            visible_colors = colors
 
         # Originally named: draw
         # Draw the model to the screen
         new_indices, new_vertices, new_colors = array_triangle_clip_against_plane(
             plane_p=np.array([0, 0, 0.1]),
             plane_n=np.array([0, 0, 1]),
-            vertices=self.temporary_vertices,
+            vertices=vertices,  # self.temporary_vertices,
             triangles=visible_indices,
             colors=visible_colors,
             clip_debug=self.clip_debug,
@@ -415,32 +406,6 @@ class Ray_tracing_model_3d:
             vertex2 = projected_vertices[vertex2_index]
             vertex3 = projected_vertices[vertex3_index]
 
-            # if vis_check:
-            #     original_triangle_idx = self._get_original_triangle_index(
-            #         triangle_index, new_indices
-            #     )
-            #     if original_triangle_idx is not None and not is_triangle_visible(
-            #         original_triangle_idx,
-            #         new_indices,
-            #         new_vertices,
-            #     ):
-            #         continue  # Skip drawing this triangle if not visible
-
-            # if vis_check:
-            #     """
-            #     we want you to use raytracing to find the form factors i.e. use your code from assignment 9.
-            #     This will allow you to take into account the visibility of one surface from another.
-            #     we now have to deal with elements that can block the line of sight from the camera to another.
-            #     when element $i$ is to be drawn, the code checks whether a ray from the origin (the camera position) to the centroid of $i$ passes through any other elements first.
-            #     If it does, the element is not drawn.
-            #     This obviously omits partially obscured elements, but for small enough elements in a dimly lit room (such as above) this is barely noticable.
-            #     Otherwise, if no visibility check is implemented, the picture will likely look good from certain viewing angles, but not others. For full points, you should implement the 'simple'
-            #     algorithm above, but include an option to turn it off, as below.
-            #     """
-            #     pass
-
-            # Only build visible triangles when vis_check is enabled
-            # if is_visible:
             self.build_triangle(
                 vertex1=vertex1,
                 vertex2=vertex2,
@@ -609,7 +574,7 @@ class Ray_tracing_model_3d:
 
             area = normalize / 2
 
-            centroid = np.mean(np.array([vertex_1, vertex_2, vertex_3]))
+            centroid = np.mean(np.array([vertex_1, vertex_2, vertex_3]), axis=0)
 
             # Store results
             self.normal_array[i] = normal
@@ -793,7 +758,7 @@ def main() -> None:
     )
 
     cube_size = 125
-    cube_divisions = 10
+    cube_divisions = 8
     offset = 75
     # Front wall
     front_wall = cube.model_rect(
@@ -976,11 +941,11 @@ def main() -> None:
 
     with measure_duration("Form factor duration: ", True):
         print("Calculating form factors...")
-        cube.update_form_factors(raytrace=True, n_rays=120)
+        cube.update_form_factors(raytrace=True, n_rays=50)
 
     with measure_duration("Color duration: ", True):
         print("Calculating light luminances...")
-        cube.colors = cube.find_colors(num_iterations=100)
+        cube.colors = cube.find_colors(num_iterations=50)
 
     noise = PerlinNoise(
         width=g_window_width,
@@ -1070,17 +1035,29 @@ def main() -> None:
 
         with measure_duration("Rotate duration: ", show_duration):
             # Rotate all the quaternions
-            cube.rotate(qx * qy * qz)
+            (cube_vertices, cube_normals, cube_centroids) = rotate(
+                qx * qy * qz,
+                vertices=cube.vertices,
+                normals=cube.normal_array,
+                centroids=cube.centroid_array,
+            )
 
         with measure_duration("Translate duration: ", show_duration):
             # Translate the relative postition
-            cube.translate(cube.position)
+            (cube_vertices, cube_centroids) = translate(
+                cube.position, vertices=cube_vertices, centroids=cube_centroids
+            )
 
         with measure_duration("Build triangles duration: ", show_duration):
             # Building the needed triangles to the screen
             cube.build_triangles(
                 window_width=g_window_width,
                 window_height=g_window_height,
+                vertices=cube_vertices,
+                centroids=cube_centroids,
+                normals=cube_normals,
+                triangle_indices=cube.triangle_indices,
+                colors=cube.colors,
                 # vis_check=visability_check,
             )
         if show_triangle_count:
