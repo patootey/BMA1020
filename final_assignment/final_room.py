@@ -111,7 +111,7 @@ class Ray_tracing_model_3d:
     "The rotation angle of the cube around the Y-axis"
     rotation_angle_z: float = 0
     "The rotation angle of the cube around the Z-axis"
-    position: np.ndarray
+    position: np.ndarray = np.array([0, 0, 0])
     "The position of the cube"
     emit_array: np.ndarray
     "Array of emission values for triangles"
@@ -123,6 +123,14 @@ class Ray_tracing_model_3d:
     "Array of all areas"
     form_factor_array: np.ndarray
     "Array of all form factors"
+    visability_check: bool
+    "Debugging tool to turn on visability"
+    centroid_array: np.ndarray
+    "Array of all centroids"
+    next_line_index: int
+    "Index of which line to be made"
+    next_triangle_index: int
+    "Index of which triangle to be made"
 
     def __init__(
         self,
@@ -133,38 +141,28 @@ class Ray_tracing_model_3d:
     ) -> None:
         # Previous named: nodes
         self.vertices = vertices
-        # self.temporary_vertices = np.array([])
         # Previous named: elements
         self.triangle_indices = triangle_indices
         self.colors = np.zeros((len(triangle_indices), 3), dtype=np.int32)
         self.batch = Batch()
         # Changed from a dictionary to a list
         self.triangles = []
-        # NEWW
-        self.next_triangle_index = 0
-        # NEWWWW
-        self.next_line_index = 0
         self.lines = []
-        self.position = np.array([0, 0, 0])
         self.emit_array = emit
         self.reflect_array = reflect
         self.normal_array: np.ndarray = np.array([])
         self.area_array: np.ndarray = np.array([])
         self.form_factor_array: np.ndarray = np.array([])
-
-        # self.ray_trace = False
-        self.centroid_array = np.array([])
-
         self.visability_check = False
+        self.centroid_array = np.array([])
+        self.next_line_index = 0
+        self.next_triangle_index = 0
 
     def prepare(self) -> None:
         """
         Preparing for a new loop.
         Initializing temporary properties.
         """
-        # Saving the old coordianates of vertices
-        # self.temporary_vertices = self.vertices.copy()
-
         # Dont show the triangles
         for triangle in self.triangles:
             triangle.visible = False
@@ -231,8 +229,6 @@ class Ray_tracing_model_3d:
         """
         # Previously named: add_element
         # And removed back parameter
-
-        # ENDRE FOR NORMALS OGSÅ?
         self.triangle_indices = np.vstack((self.triangle_indices, np.array([triangle])))
         self.emit_array = np.vstack((self.emit_array, np.array([emit])))
         self.reflect_array = np.vstack((self.reflect_array, np.array([reflect])))
@@ -244,8 +240,6 @@ class Ray_tracing_model_3d:
         :param index: Index of the triangle.
         """
         # Previously named: delete_element
-
-        # ENDRE FOR NORMALS OGSÅ?
         self.triangle_indices = np.delete(self.triangle_indices, index, axis=0)
         self.emit_array = np.delete(self.emit_array, index, axis=0)
         self.reflect_array = np.delete(self.reflect_array, index, axis=0)
@@ -266,10 +260,6 @@ class Ray_tracing_model_3d:
         :param window_width: Window width.
         :param window_heigth: Window heigth.
         """
-
-        # if not vis_check:
-        #     return
-
         if self.next_triangle_index < len(self.triangles):
             triangle = self.triangles[self.next_triangle_index]
             triangle.x = vertex1[0]
@@ -299,7 +289,6 @@ class Ray_tracing_model_3d:
         # Debugging helpers
         if self.wireframe:
             if self.next_line_index < len(self.lines):
-                # GJØR DET BARE FOR EN LINE, MÅ FOR ALLE TRE
                 line = self.lines[self.next_line_index]
                 line.x = vertex1[0]
                 line.y = vertex1[1]
@@ -341,20 +330,24 @@ class Ray_tracing_model_3d:
 
         :param window_width: Window width.
         :param window_height: Window heigth.
+        :param vertices:
+        :param centroids:
+        :param normals:
+        :param triangle_indices:
+        :param colors:
         """
 
         if self.visability_check:
-            # Assuming camera_position is at [0, 0, -10] by default, adjust as needed
-            camera_position = np.array([0, 0, -10])
             visible_triangles = get_visible_triangles(
-                camera_position,
+                camera_position=np.array([0, 0, -10]),
+                camera_direction=np.array([0, 0, 0.1]),
                 triangle_indices=triangle_indices,
                 vertices=vertices,
                 centroids=centroids,
                 normals=normals,
             )
 
-            # Filter triangles using visibility mask
+            # Filter triangles using visibility check
             visible_indices = triangle_indices[visible_triangles]
             visible_colors = colors[visible_triangles]
         else:
@@ -367,7 +360,7 @@ class Ray_tracing_model_3d:
         new_indices, new_vertices, new_colors = array_triangle_clip_against_plane(
             plane_p=np.array([0, 0, 0.1]),
             plane_n=np.array([0, 0, 1]),
-            vertices=vertices,  # self.temporary_vertices,
+            vertices=vertices,
             triangles=visible_indices,
             colors=visible_colors,
             clip_debug=self.clip_debug,
@@ -413,22 +406,6 @@ class Ray_tracing_model_3d:
                 color=color,
             )
 
-    def _get_original_triangle_index(
-        self, clipped_index: int, new_indices: np.ndarray
-    ) -> int | None:
-        """
-        Map a clipped triangle index back to the original triangle indices.
-        This is needed because the clipping process might create new triangles.
-
-        Returns None if mapping can't be determined.
-        """
-        if clipped_index < len(new_indices):
-            return clipped_index
-
-        # This is a simple approach - a more accurate mapping would need to be maintained
-        # during the clipping process
-        return None
-
     @classmethod  # 10 points
     def model_rect(
         cls,
@@ -464,6 +441,7 @@ class Ray_tracing_model_3d:
         :param rotation_axis: Axis around which to rotate the model.
         :param rotation_angle: Angle to rotate (in radians).
         :param flip_normals: If True, flip the normals direction.
+        :param midpoint:
         :return: A new instance of Light_model_3d representing the model.
         """
 
@@ -581,7 +559,7 @@ class Ray_tracing_model_3d:
             self.area_array[i] = area
             self.centroid_array[i] = centroid
 
-    def update_form_factors(self, raytrace=False, n_rays: int = 10) -> None:  # 5 points
+    def update_form_factors(self, raytrace, n_rays: int = 10) -> None:  # 5 points
         """
         Compute the form factor matrix for all triangle pairs.
         Used some from assignment 8
@@ -941,7 +919,7 @@ def main() -> None:
 
     with measure_duration("Form factor duration: ", True):
         print("Calculating form factors...")
-        cube.update_form_factors(raytrace=True, n_rays=50)
+        cube.update_form_factors(raytrace=True, n_rays=100)
 
     with measure_duration("Color duration: ", True):
         print("Calculating light luminances...")
