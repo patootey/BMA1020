@@ -344,42 +344,11 @@ class Ray_tracing_model_3d:
         self, raytrace: bool = False, n_rays: int = 10
     ) -> None:  # 5 points
         if raytrace:
-            rng = np.random.default_rng()  # Create a random number generator
             self.form_factor_array = form_factors_raytrace(
-                self.vertices, self.triangle_indices, n_rays, rng
+                self.vertices,
+                self.triangle_indices,
+                n_rays,
             )
-        else:
-            num_triangles = len(self.triangle_indices)
-            self.form_factor_array = np.zeros((num_triangles, num_triangles))
-            centroids = np.zeros((num_triangles, 3))
-            for i in range(num_triangles):
-                centroids[i] = np.mean(self.vertices[self.triangle_indices[i]], axis=0)
-            centroids_i = centroids[:, np.newaxis, :]
-            centroids_j = centroids[np.newaxis, :, :]
-            r_vectors = centroids_j - centroids_i
-            r_norms = np.linalg.norm(r_vectors, axis=2)
-            non_diagonal = np.ones((num_triangles, num_triangles), dtype=bool)
-            np.fill_diagonal(non_diagonal, False)
-            i_indices, j_indices = np.where(non_diagonal)
-            valid_r_vectors = r_vectors[i_indices, j_indices]
-            valid_r_norms = r_norms[i_indices, j_indices]
-            valid_r_units = valid_r_vectors / valid_r_norms[:, np.newaxis]
-            normals_i = self.normal_array[i_indices]
-            dot_ni = np.sum(valid_r_units * normals_i, axis=1)
-            normals_j = self.normal_array[j_indices]
-            dot_nj = np.sum(-valid_r_units * normals_j, axis=1)
-            valid_dots = (dot_ni > 0) & (dot_nj > 0)
-            valid_i = i_indices[valid_dots]
-            valid_j = j_indices[valid_dots]
-            final_dot_ni = dot_ni[valid_dots]
-            final_dot_nj = dot_nj[valid_dots]
-            final_r_norms = valid_r_norms[valid_dots]
-            computed_factors = (
-                self.area_array[valid_j]
-                * (final_dot_ni * final_dot_nj)
-                / (np.pi * final_r_norms**2)
-            )
-            self.form_factor_array[valid_i, valid_j] = computed_factors
 
     def find_luminances(self, num_iterations: int) -> np.ndarray:
         radiosity_array = self.emit_array.copy()
