@@ -301,19 +301,21 @@ def is_triangle_visible(
 @njit
 def get_visible_triangles(
     camera_position: np.ndarray,
+    camera_direction: np.ndarray,
     triangle_indices: np.ndarray,
     vertices: np.ndarray,
     centroids: np.ndarray,
     normals: np.ndarray,
 ) -> np.ndarray:
     """
-    FILL INN
+    Check if a triangle is visible from the camera position and direction.
 
-    :param camera_position:
-    :param triangle_indices:
-    :param vertices:
-    :param centroids:
-    :param normals:
+    :param camera_position: Position of the camera.
+    :param camera_direction: Direction of the camera.
+    :param triangle_indices: Array of all triangles.
+    :param vertices: Array of all vertices.
+    :param centroids: Array of centroids of all triangles.
+    :param normals: Array of normals of all triangles.
     """
     # Pre fill
     num_triangles = len(triangle_indices)
@@ -322,11 +324,12 @@ def get_visible_triangles(
     distances = np.zeros(num_triangles, dtype=np.float64)
 
     # Pre-compute centroids and directions for all triangles
+    directions = centroids - camera_position
     for i in range(num_triangles):
         # Calculate direction and distance
-        direction = centroids[i] - camera_position
-        distances[i] = np.linalg.norm(direction)
-        directions[i] = direction / distances[i]  # Normalize
+        # Had to use for loop because of numba limitation with norm and axis
+        distances[i] = np.linalg.norm(directions[i])
+        directions[i] = directions[i] / distances[i]  # Normalize
 
     # Sort triangles by distance, the same as for distance check for which triangle to show first
     sorted_indices = np.argsort(distances)
@@ -339,6 +342,11 @@ def get_visible_triangles(
         if not visible[triangle_index]:
             continue
 
+        # Check the normals to be drawn, if points other way, skip
+        if np.dot(normals[triangle_index], directions[triangle_index]) >= 0:
+            visible[triangle_index] = False
+            continue
+
         # Get triangle vertices for accurate intersection test
         indices = triangle_indices[triangle_index]
         vec0 = vertices[indices[0]]
@@ -346,10 +354,9 @@ def get_visible_triangles(
         vec2 = vertices[indices[2]]
 
         # Get data for current triangle
-        # centroid = centroids[triangle_index]
         direction = directions[triangle_index]
 
-        # This part I got help from AI: occlude check
+        # This part I got help from AI
         # Check if this triangle occludes any farther triangles
         for j in range(i + 1, num_triangles):
             occluded_index = sorted_indices[j]
