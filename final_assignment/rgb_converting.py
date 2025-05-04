@@ -5,6 +5,7 @@ Got from assignment 8.
 @Author Mathilde Borsodi Hegna
 """
 
+from pathlib import Path
 import numpy as np
 
 
@@ -73,7 +74,20 @@ def hermite_interpolation(target_time, time, pos, speed):
         return position, velocity
 
 
-lms_values = np.loadtxt("final_assignment/final_LMS.csv", delimiter=";")
+lms_path = Path(__file__).parent / "final_LMS.csv"
+if lms_path.exists():
+    lms_values = np.loadtxt(lms_path, delimiter=";")
+else:
+    lms_path = Path(__file__).parent.parent / "final_LMS.csv"
+    if lms_path.exists():
+        lms_values = np.loadtxt(lms_path, delimiter=";")
+    else:
+        lms_path = Path("final_assignment/final_LMS.csv")
+        if lms_path.exists():
+            lms_values = np.loadtxt(lms_path, delimiter=";")
+        else:
+            raise Exception("Failed to find file final_LMS.csv")
+# lms_values = np.loadtxt("final_assignment/final_LMS.csv", delimiter=";")
 
 
 def create_hermite_interpolation(time_points, position_values):
