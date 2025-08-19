@@ -12,24 +12,31 @@ Debug:
     To activate wireframe: F1
     To activate debug clipping: F2
     To change FOV: F3 & F4
+    To change to show visability check: V
 
 @Author Mathilde Borsodi Hegna
 """
 
+import pyglet
+from pyglet.window import key, Window
+from pyglet.graphics import Batch, Group
+from pyglet.shapes import Line, Triangle
+import numpy as np
 from contextlib import contextmanager
 from datetime import datetime
-from global_functions import array_triangle_clip_against_plane, array_project_screen
-from midpoint import midpoint_2d
-from ray_tracing import form_factors_raytrace, get_visible_triangles
-import numpy as np
-import pyglet
-from pyglet.graphics import Batch
-from pyglet.window import key, Window
-from pyglet.shapes import Line, Triangle
-from quaternions import Quaternion
-from rgb_converting import LMS_to_RGB
-import perlin
+from pyglet.sprite import Sprite
 from pyglet.gl import GLubyte
+import perlin
+from midpoint import midpoint_2d
+from rgb_converting import LMS_to_RGB
+from ray_tracing import form_factors_raytrace, get_visible_triangles
+from quaternions import Quaternion
+from global_functions import (
+    array_triangle_clip_against_plane,
+    array_project_screen,
+    rotate,
+    translate,
+)
 
 # Global variables
 g_window_width = 800
@@ -45,14 +52,25 @@ FRAME_TIME: float = 1 / 60
 class PerlinNoise:
     def __init__(
         self, width: int, height: int, grid_size: tuple[int, int] | None = None
-    ):
+    ) -> None:
+        """
+        Class to handle noise and pyglet image conversion.
+
+        :param width: The window width
+        :param height: The window height
+        :param grid_size: Tuple of x and y grid sizes.
+        """
         self.width = width
         self.height = height
         self.noise = perlin.noise(self.width, self.height, grid_size)
 
-    def to_sprite(self, alpha: int = 50):
-        color_channel = self.noise * 255
+    def to_sprite(self, alpha: int = 50) -> Sprite:
+        """
+        Convert noise to RGBA and to a bitmap so pyglet can read.
 
+        :param alpha: The alpha channel value
+        """
+        color_channel = self.noise * 255
         # Generate an alpha channel
         alpha_channel = alpha * np.ones((self.height, self.width))
 
@@ -62,7 +80,6 @@ class PerlinNoise:
         ).astype(np.uint32)
 
         greyscale = greyscale.reshape(self.height * self.width * 4)
-
         # convert the bitmap to a form pyglet can read
         byte_data = bytes((GLubyte * greyscale.size)(*greyscale.astype("uint8")))
 
@@ -70,7 +87,6 @@ class PerlinNoise:
         img = pyglet.image.ImageData(
             self.width, self.height, "RGBA", byte_data, pitch=self.width * 4
         )
-
         # set the noise into a sprite for displaying in the pyglet application
         return pyglet.sprite.Sprite(img=img)
 
@@ -78,8 +94,6 @@ class PerlinNoise:
 class Ray_tracing_model_3d:
     vertices: np.ndarray
     "Array of vertex arrays"
-    temporary_vertices: np.ndarray
-    "Temporary copy of vertices for transformation"
     triangle_indices: np.ndarray
     "Array of triangle arrays"
     colors: np.ndarray
@@ -106,7 +120,7 @@ class Ray_tracing_model_3d:
     "The rotation angle of the cube around the Y-axis"
     rotation_angle_z: float = 0
     "The rotation angle of the cube around the Z-axis"
-    position: np.ndarray
+    position: np.ndarray = np.array([0, 0, 0])
     "The position of the cube"
     emit_array: np.ndarray
     "Array of emission values for triangles"
@@ -118,6 +132,18 @@ class Ray_tracing_model_3d:
     "Array of all areas"
     form_factor_array: np.ndarray
     "Array of all form factors"
+    visability_check: bool
+    "Debugging tool to turn on visability"
+    centroid_array: np.ndarray
+    "Array of all centroids"
+    next_line_index: int
+    "Index of which line to be made"
+    next_triangle_index: int
+    "Index of which triangle to be made"
+    triangle_group: Group
+    "Triangles draw group"
+    line_group: Group
+    "Lines draw group"
 
     def __init__(
         self,
@@ -128,38 +154,30 @@ class Ray_tracing_model_3d:
     ) -> None:
         # Previous named: nodes
         self.vertices = vertices
-        self.temporary_vertices = np.array([])
         # Previous named: elements
         self.triangle_indices = triangle_indices
         self.colors = np.zeros((len(triangle_indices), 3), dtype=np.int32)
         self.batch = Batch()
         # Changed from a dictionary to a list
         self.triangles = []
-        # NEWW
-        self.next_triangle_index = 0
-        # NEWWWW
-        self.next_line_index = 0
         self.lines = []
-        self.position = np.array([0, 0, 0])
         self.emit_array = emit
         self.reflect_array = reflect
         self.normal_array: np.ndarray = np.array([])
         self.area_array: np.ndarray = np.array([])
         self.form_factor_array: np.ndarray = np.array([])
-
-        # self.ray_trace = False
-        self.centroids_array = np.array([])
-
         self.visability_check = False
+        self.centroid_array = np.array([])
+        self.next_line_index = 0
+        self.next_triangle_index = 0
+        self.triangle_group = Group(0)
+        self.line_group = Group(1)
 
     def prepare(self) -> None:
         """
         Preparing for a new loop.
         Initializing temporary properties.
         """
-        # Saving the old coordianates of vertices
-        self.temporary_vertices = self.vertices.copy()
-
         # Dont show the triangles
         for triangle in self.triangles:
             triangle.visible = False
@@ -226,8 +244,6 @@ class Ray_tracing_model_3d:
         """
         # Previously named: add_element
         # And removed back parameter
-
-        # ENDRE FOR NORMALS OGSÅ?
         self.triangle_indices = np.vstack((self.triangle_indices, np.array([triangle])))
         self.emit_array = np.vstack((self.emit_array, np.array([emit])))
         self.reflect_array = np.vstack((self.reflect_array, np.array([reflect])))
@@ -239,34 +255,9 @@ class Ray_tracing_model_3d:
         :param index: Index of the triangle.
         """
         # Previously named: delete_element
-
-        # ENDRE FOR NORMALS OGSÅ?
         self.triangle_indices = np.delete(self.triangle_indices, index, axis=0)
         self.emit_array = np.delete(self.emit_array, index, axis=0)
         self.reflect_array = np.delete(self.reflect_array, index, axis=0)
-
-    def rotate(self, quaternion: Quaternion) -> None:
-        """
-        Rotate all the vertices by a quaternion.
-
-        :param quaternion: Quaternion object
-        """
-        # up to 25 points, including the quaternion code
-        self.temporary_vertices = quaternion.rotate_vectors(self.temporary_vertices)
-
-    def translate(self, vector: np.ndarray) -> None:  # 10 points
-        """
-        Translating all vertices by the vector.
-
-        :param vector: Vector direction.
-        """
-        if vector.ndim != 1:
-            raise ValueError("Vector must be 1D")
-        if len(vector) != 3:
-            raise ValueError("Vector length must be 3")
-
-        for i in range(len(self.temporary_vertices)):
-            self.temporary_vertices[i] = self.temporary_vertices[i] + vector
 
     def build_triangle(
         self,
@@ -284,10 +275,6 @@ class Ray_tracing_model_3d:
         :param window_width: Window width.
         :param window_heigth: Window heigth.
         """
-
-        # if not vis_check:
-        #     return
-
         if self.next_triangle_index < len(self.triangles):
             triangle = self.triangles[self.next_triangle_index]
             triangle.x = vertex1[0]
@@ -310,43 +297,55 @@ class Ray_tracing_model_3d:
                 vertex3[1],
                 color=tuple(color),
                 batch=self.batch,
+                group=self.triangle_group,
             )
             self.triangles.append(triangle)
             self.next_triangle_index += 1
 
         # Debugging helpers
         if self.wireframe:
-            if self.next_line_index < len(self.lines):
-                # GJØR DET BARE FOR EN LINE, MÅ FOR ALLE TRE
-                line = self.lines[self.next_line_index]
-                line.x = vertex1[0]
-                line.y = vertex1[1]
-                line.x2 = vertex2[0]
-                line.y2 = vertex2[1]
-                line.visible = True
-                self.next_line_index += 1
-            else:
-                self.lines.append(
-                    Line(
-                        vertex1[0], vertex1[1], vertex2[0], vertex2[1], batch=self.batch
-                    )
+            self.build_line(vertex1, vertex2)
+            self.build_line(vertex2, vertex3)
+            self.build_line(vertex1, vertex3)
+
+    def build_line(
+        self,
+        vertex1: np.ndarray,
+        vertex2: np.ndarray,
+        color: tuple[int, int, int] = (255, 255, 255),
+    ):
+        if self.next_line_index < len(self.lines):
+            line = self.lines[self.next_line_index]
+            line.x = vertex1[0]
+            line.y = vertex1[1]
+            line.x2 = vertex2[0]
+            line.y2 = vertex2[1]
+            line.color = color
+            line.visible = True
+            self.next_line_index += 1
+        else:
+            self.lines.append(
+                Line(
+                    vertex1[0],
+                    vertex1[1],
+                    vertex2[0],
+                    vertex2[1],
+                    color=color,
+                    batch=self.batch,
+                    group=self.line_group,
                 )
-                self.lines.append(
-                    Line(
-                        vertex2[0], vertex2[1], vertex3[0], vertex3[1], batch=self.batch
-                    )
-                )
-                self.lines.append(
-                    Line(
-                        vertex1[0], vertex1[1], vertex3[0], vertex3[1], batch=self.batch
-                    )
-                )
-                self.next_line_index += 1
+            )
+            self.next_line_index += 1
 
     def build_triangles(
         self,
         window_width: int,
         window_height: int,
+        vertices: np.ndarray,
+        centroids: np.ndarray,
+        normals: np.ndarray,
+        triangle_indices: np.ndarray,
+        colors: np.ndarray,
     ) -> None:
         """
         Builds all the triangles for the viewport.
@@ -354,29 +353,34 @@ class Ray_tracing_model_3d:
 
         :param window_width: Window width.
         :param window_height: Window heigth.
+        :param vertices: Array of vertices.
+        :param centroids: Array of centroids.
+        :param normals: Array of normals.
+        :param triangle_indices: Array of triangle indices.
+        :param colors: Array of colors.
         """
-
         if self.visability_check:
-            # Assuming camera_position is at [0, 0, -10] by default, adjust as needed
-            camera_position = np.array([0, 0, -10])
             visible_triangles = get_visible_triangles(
-                self.triangle_indices, self.temporary_vertices, camera_position
+                camera_position=np.array([0, 0, -10]),
+                triangle_indices=triangle_indices,
+                vertices=vertices,
+                centroids=centroids,
+                normals=normals,
             )
-
-            # Filter triangles using visibility mask
-            visible_indices = self.triangle_indices[visible_triangles]
-            visible_colors = self.colors[visible_triangles]
+            # Filter triangles using visibility check
+            visible_indices = triangle_indices[visible_triangles]
+            visible_colors = colors[visible_triangles]
         else:
             # Process all triangles if visibility check is disabled
-            visible_indices = self.triangle_indices
-            visible_colors = self.colors
+            visible_indices = triangle_indices
+            visible_colors = colors
 
         # Originally named: draw
         # Draw the model to the screen
         new_indices, new_vertices, new_colors = array_triangle_clip_against_plane(
             plane_p=np.array([0, 0, 0.1]),
             plane_n=np.array([0, 0, 1]),
-            vertices=self.temporary_vertices,
+            vertices=vertices,
             triangles=visible_indices,
             colors=visible_colors,
             clip_debug=self.clip_debug,
@@ -410,59 +414,17 @@ class Ray_tracing_model_3d:
             color = new_colors[triangle_index]
             triangle_array: np.ndarray = new_indices[triangle_index]
             vertex1_index, vertex2_index, vertex3_index = triangle_array
-            # Make sure the vertices does not get the same coords/index
+
             vertex1 = projected_vertices[vertex1_index]
             vertex2 = projected_vertices[vertex2_index]
             vertex3 = projected_vertices[vertex3_index]
 
-            # if vis_check:
-            #     original_triangle_idx = self._get_original_triangle_index(
-            #         triangle_index, new_indices
-            #     )
-            #     if original_triangle_idx is not None and not is_triangle_visible(
-            #         original_triangle_idx,
-            #         new_indices,
-            #         new_vertices,
-            #     ):
-            #         continue  # Skip drawing this triangle if not visible
-
-            # if vis_check:
-            #     """
-            #     we want you to use raytracing to find the form factors i.e. use your code from assignment 9.
-            #     This will allow you to take into account the visibility of one surface from another.
-            #     we now have to deal with elements that can block the line of sight from the camera to another.
-            #     when element $i$ is to be drawn, the code checks whether a ray from the origin (the camera position) to the centroid of $i$ passes through any other elements first.
-            #     If it does, the element is not drawn.
-            #     This obviously omits partially obscured elements, but for small enough elements in a dimly lit room (such as above) this is barely noticable.
-            #     Otherwise, if no visibility check is implemented, the picture will likely look good from certain viewing angles, but not others. For full points, you should implement the 'simple'
-            #     algorithm above, but include an option to turn it off, as below.
-            #     """
-            #     pass
-
-            # Only build visible triangles when vis_check is enabled
-            # if is_visible:
             self.build_triangle(
                 vertex1=vertex1,
                 vertex2=vertex2,
                 vertex3=vertex3,
                 color=color,
             )
-
-    def _get_original_triangle_index(
-        self, clipped_index: int, new_indices: np.ndarray
-    ) -> int | None:
-        """
-        Map a clipped triangle index back to the original triangle indices.
-        This is needed because the clipping process might create new triangles.
-
-        Returns None if mapping can't be determined.
-        """
-        if clipped_index < len(new_indices):
-            return clipped_index
-
-        # This is a simple approach - a more accurate mapping would need to be maintained
-        # during the clipping process
-        return None
 
     @classmethod  # 10 points
     def model_rect(
@@ -479,7 +441,6 @@ class Ray_tracing_model_3d:
         rotation_axis: np.ndarray = np.array([0, 0, 1]),
         rotation_angle: float = 0,
         flip_normals: bool = False,
-        # NEW
         midpoint: bool = False,
         midpoint_scale: float = 1.0,
         terrain_roughness: float = 1.0,
@@ -499,9 +460,11 @@ class Ray_tracing_model_3d:
         :param rotation_axis: Axis around which to rotate the model.
         :param rotation_angle: Angle to rotate (in radians).
         :param flip_normals: If True, flip the normals direction.
+        :param midpoint: If true, midpoint/heightmap will be set.
+        :param midpoint_scale: The scale for midpoint.
+        :param terrain_roughness: How rough the heightmap should be.
         :return: A new instance of Light_model_3d representing the model.
         """
-
         x_coords = np.linspace(x_min, x_max, x_divisions)
         y_coords = np.linspace(y_min, y_max, y_divisions)
         grid_x, grid_y = np.meshgrid(x_coords, y_coords)
@@ -514,12 +477,10 @@ class Ray_tracing_model_3d:
             )
         )
         z_values = np.zeros((x_divisions * y_divisions, 1))
-
         if midpoint:
             # Find the power of 2 that will fit our grid size
             size = max(x_divisions, y_divisions)
             # Calculate how many powers of 2 would be needed to represent this size
-            # Round up to ensure we have enough space
             grid_n = int(np.ceil(np.log2(size - 1)))
 
             square_size = 2**grid_n + 1
@@ -557,14 +518,11 @@ class Ray_tracing_model_3d:
                     triangle_indices.append([bottom_right, top_right, bottom_left])
 
         triangle_indices = np.array(triangle_indices)
-
         quaternion_rotation = Quaternion.from_rotation(
             np.array(rotation_axis), rotation_angle
         )
-
         # Apply rotation
         rotated_vertices = quaternion_rotation.rotate_vectors(vertices)
-
         # Apply translation
         translated_vertices = rotated_vertices + np.array(translation_vector)
 
@@ -578,8 +536,7 @@ class Ray_tracing_model_3d:
 
     def update_geometry(self) -> None:  # 5 points
         """
-        Compute the normals and areas of each triangle in the plane.
-        Used some from assignment 8
+        Compute the normals, centroids and areas of each triangle in the plane.
         """
         num_triangles = len(self.triangle_indices)
 
@@ -601,90 +558,32 @@ class Ray_tracing_model_3d:
 
             # Calculate normal using cross product
             normal = np.cross(vector_1, vector_2)
-
             # Normalize the normal vector
             normalize = np.linalg.norm(normal)
             if normalize > 0:
                 normal = normal / normalize
 
             area = normalize / 2
-
-            centroid = np.mean(np.array([vertex_1, vertex_2, vertex_3]))
+            centroid = np.mean(np.array([vertex_1, vertex_2, vertex_3]), axis=0)
 
             # Store results
             self.normal_array[i] = normal
             self.area_array[i] = area
             self.centroid_array[i] = centroid
 
-    def update_form_factors(self, raytrace=False, n_rays: int = 10) -> None:  # 5 points
+    def update_form_factors(self, n_rays: int) -> None:  # 5 points
         """
-        Compute the form factor matrix for all triangle pairs.
-        Used some from assignment 8
+        Compute the form factor ray trace for all triangle pairs.
 
-        Uses the formula:
-            Fij = (1/Ai) * ∫∫ (cos(θi)cos(θj)/(π*r²)) dAidAj
+        :param n_rays: Number of random rays to send out.
         """
-
-        if raytrace:
-            # rng = np.random.default_rng(123)
-            self.form_factor_array = form_factors_raytrace(
-                self.vertices,
-                self.triangle_indices,
-                n_rays,  # rng
-            )
-        else:
-            num_triangles = len(self.triangle_indices)
-            self.form_factor_array = np.zeros((num_triangles, num_triangles))
-
-            self.centroids_array = np.zeros((num_triangles, 3))
-            for i in range(num_triangles):
-                self.centroids_array[i] = np.mean(
-                    self.vertices[self.triangle_indices[i]], axis=0
-                )
-
-            centroids_i = self.centroids_array[:, np.newaxis, :]
-            centroids_j = self.centroids_array[np.newaxis, :, :]
-
-            r_vectors = centroids_j - centroids_i
-
-            r_norms = np.linalg.norm(r_vectors, axis=2)
-
-            # Create a mask for diagonal elements to avoid division by zero
-            # HJELP AV AI
-            non_diagonal = np.ones((num_triangles, num_triangles), dtype=bool)
-            np.fill_diagonal(non_diagonal, False)
-
-            # Only process non-diagonal elements
-            i_indices, j_indices = np.where(non_diagonal)
-
-            valid_r_vectors = r_vectors[i_indices, j_indices]
-            valid_r_norms = r_norms[i_indices, j_indices]
-
-            # Compute unit direction vectors
-            valid_r_units = valid_r_vectors / valid_r_norms[:, np.newaxis]
-
-            normals_i = self.normal_array[i_indices]
-            dot_ni = np.sum(valid_r_units * normals_i, axis=1)
-
-            normals_j = self.normal_array[j_indices]
-            dot_nj = np.sum(-valid_r_units * normals_j, axis=1)
-
-            valid_dots = (dot_ni > 0) & (dot_nj > 0)
-
-            valid_i = i_indices[valid_dots]
-            valid_j = j_indices[valid_dots]
-
-            final_dot_ni = dot_ni[valid_dots]
-            final_dot_nj = dot_nj[valid_dots]
-            final_r_norms = valid_r_norms[valid_dots]
-
-            computed_factors = (
-                self.area_array[valid_j]
-                * (final_dot_ni * final_dot_nj)
-                / (np.pi * final_r_norms**2)
-            )
-
-            self.form_factor_array[valid_i, valid_j] = computed_factors
+        self.form_factor_array = form_factors_raytrace(
+            vertices=self.vertices,
+            triangles_indices=self.triangle_indices,
+            # centroids=self.centroid_array,
+            normals=self.normal_array,
+            n_rays=n_rays,
+        )
 
     def find_luminances(self, num_iterations: int) -> np.ndarray:
         """
@@ -695,13 +594,11 @@ class Ray_tracing_model_3d:
         :param num_iterations: Number of iterations for the radiosity computation.
         :return: A array of RGB luminance values.
         """
-
-        # num_triangles = len(self.triangle_indices)
         radiosity_array = self.emit_array.copy()
         initial_emission_array = self.emit_array.copy()
 
-        # Create a mask to exclude diagonal elements (i==j)
         # HJELP AV AI
+        # Create a mask to exclude diagonal elements (i==j)
         non_diagonal = np.ones(
             (len(self.triangle_indices), len(self.triangle_indices)), dtype=bool
         )
@@ -805,7 +702,7 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.5, 0.1, 0.7]),
-        translation_vector=np.array([0, 0, cube_size / 2 + offset]),  # Front position
+        translation_vector=np.array([0, 0, cube_size / 2 + offset]),
         rotation_axis=np.array([0, 0, 1]),
         rotation_angle=0,
         flip_normals=True,
@@ -822,9 +719,9 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.0, 0.5, 0.5]),
-        translation_vector=np.array([0, 0, -cube_size / 2]),  # Back position
+        translation_vector=np.array([0, 0, -cube_size / 2]),
         rotation_axis=np.array([1, 0, 0]),
-        rotation_angle=np.pi,  # 180 degree rotation
+        rotation_angle=np.pi,
         flip_normals=True,
     )
     cube.add_model(back_wall)
@@ -839,9 +736,9 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.8, 0.5, 0.3]),
-        translation_vector=np.array([cube_size / 2, 0, 0]),  # Right position
+        translation_vector=np.array([cube_size / 2, 0, 0]),
         rotation_axis=np.array([0, 1, 0]),
-        rotation_angle=-np.pi / 2,  # -90 degree rotation
+        rotation_angle=-np.pi / 2,
     )
     cube.add_model(right_wall)
 
@@ -854,14 +751,14 @@ def main() -> None:
         cube_size / 2,
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
-        reflect=np.array([0.4, 0.5, 0.3]),
+        reflect=np.array([0.8, 0.5, 0.3]),
         translation_vector=np.array([-cube_size / 2, 0, 0]),  # Left position
         rotation_axis=np.array([0, 1, 0]),
-        rotation_angle=np.pi / 2,  # 90 degree rotation
+        rotation_angle=np.pi / 2,
     )
     cube.add_model(left_wall)
 
-    # Bottom wall
+    # Bottom wall, with heigthmap
     bottom_wall = cube.model_rect(
         -cube_size / 2,
         cube_size / 2,
@@ -871,9 +768,9 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.5, 0.3, 0.0]),
-        translation_vector=np.array([0, -cube_size / 2, 0]),  # Bottom position
+        translation_vector=np.array([0, -cube_size / 2, 0]),
         rotation_axis=np.array([1, 0, 0]),
-        rotation_angle=np.pi / 2,  # 90 degree rotation
+        rotation_angle=np.pi / 2,
         flip_normals=True,
         midpoint=True,
         midpoint_scale=15.0,
@@ -891,52 +788,91 @@ def main() -> None:
         cube_divisions,
         emission=np.array([0.0, 0.0, 0.0]),
         reflect=np.array([0.2, 0.1, 0.2]),
-        translation_vector=np.array([0, cube_size / 2, 0]),  # Top position
+        translation_vector=np.array([0, cube_size / 2, 0]),
         rotation_axis=np.array([1, 0, 0]),
-        rotation_angle=-np.pi / 2,  # -90 degree rotation
+        rotation_angle=-np.pi / 2,
         flip_normals=True,
     )
     cube.add_model(top_wall)
 
-    # USED AI TO GENRATE COLUMNS
+    # --------------------------------------------------------------------------
+
     column_size = 25
     column_height = cube_size - 5
-    column_division = 4
-    reflectance_gray = np.array([0.2, 0.2, 0.2])  # Medium gray
-
-    # Offsets to place columns toward corners
+    column_division = 5
+    reflectance_gray = np.array([0.2, 0.2, 0.2])
     column_offset = cube_size / 2 - column_size
+    base_position = np.array([column_offset, 0, column_offset])
 
-    # 4 corner positions
-    column_positions = [
-        np.array([column_offset, 0, column_offset]),  # Front right
-    ]
+    # Front
+    column1_front = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([0, 0, -column_size / 2]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=0,
+        flip_normals=True,
+    )
+    cube.add_model(column1_front)
 
-    for pos in column_positions:
-        for i in range(4):
-            angle = i * np.pi / 2
-            face_translation = pos + np.array(
-                [
-                    column_size / 2 * np.sin(angle) - 10,
-                    0,
-                    column_size / 2 * np.cos(angle) - 5,
-                ]
-            )
+    # Right
+    column1_right = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([column_size / 2, 0, 0]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=-np.pi / 2,
+        flip_normals=True,
+    )
+    cube.add_model(column1_right)
 
-            column_face = cube.model_rect(
-                -column_size / 2,
-                column_size / 2,
-                column_division,
-                -column_height / 2,
-                column_height / 2,
-                column_division,
-                emission=np.array([0.0, 0.0, 0.0]),
-                reflect=reflectance_gray,
-                translation_vector=face_translation,
-                rotation_axis=np.array([0, 1, 0]),
-                rotation_angle=-angle,
-            )
-            cube.add_model(column_face)
+    # Back
+    column1_back = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([0, 0, column_size / 2]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=np.pi,
+        flip_normals=True,
+    )
+    cube.add_model(column1_back)
+
+    # Left
+    column1_left = cube.model_rect(
+        -column_size / 2,
+        column_size / 2,
+        column_division,
+        -column_height / 2,
+        column_height / 2,
+        column_division,
+        emission=np.array([0.0, 0.0, 0.0]),
+        reflect=reflectance_gray,
+        translation_vector=base_position + np.array([-column_size / 2, 0, 0]),
+        rotation_axis=np.array([0, 1, 0]),
+        rotation_angle=np.pi / 2,
+        flip_normals=True,
+    )
+    cube.add_model(column1_left)
+
+    # --------------------------------------------------------------------------
 
     light_size = 30
     light_division = 4
@@ -949,13 +885,11 @@ def main() -> None:
         -light_size / 2,
         light_size / 2,
         light_division,
-        emission=np.array([100.0, 100.0, 100.0]),  # Bright white light
+        emission=np.array([100.0, 100.0, 100.0]),
         reflect=np.array([0.0, 0.0, 0.0]),
-        translation_vector=np.array(
-            [0, cube_size / 2 - 2, 80]
-        ),  # Slightly below ceiling
+        translation_vector=np.array([0, cube_size / 2 - 7, 80]),
         rotation_axis=np.array([1, 0, 0]),
-        rotation_angle=np.pi / 2,  # Pointing down
+        rotation_angle=np.pi / 2,
     )
     cube.add_model(center_light)
 
@@ -976,17 +910,17 @@ def main() -> None:
 
     with measure_duration("Form factor duration: ", True):
         print("Calculating form factors...")
-        cube.update_form_factors(raytrace=True, n_rays=120)
+        cube.update_form_factors(n_rays=100)
 
     with measure_duration("Color duration: ", True):
         print("Calculating light luminances...")
-        cube.colors = cube.find_colors(num_iterations=100)
+        cube.colors = cube.find_colors(num_iterations=50)
 
+    # Generate noise image
     noise = PerlinNoise(
         width=g_window_width,
         height=g_window_height,
     )
-
     sprite = noise.to_sprite(alpha=35)
 
     show_duration = False
@@ -1010,6 +944,7 @@ def main() -> None:
     def on_draw() -> None:
         g_window.clear()
         cube.batch.draw()
+        # Draw image to screen
         sprite.draw()
 
         if show_triangle_count:
@@ -1070,17 +1005,29 @@ def main() -> None:
 
         with measure_duration("Rotate duration: ", show_duration):
             # Rotate all the quaternions
-            cube.rotate(qx * qy * qz)
+            (cube_vertices, cube_normals, cube_centroids) = rotate(
+                qx * qy * qz,
+                vertices=cube.vertices,
+                normals=cube.normal_array,
+                centroids=cube.centroid_array,
+            )
 
         with measure_duration("Translate duration: ", show_duration):
             # Translate the relative postition
-            cube.translate(cube.position)
+            (cube_vertices, cube_centroids) = translate(
+                cube.position, vertices=cube_vertices, centroids=cube_centroids
+            )
 
         with measure_duration("Build triangles duration: ", show_duration):
             # Building the needed triangles to the screen
             cube.build_triangles(
                 window_width=g_window_width,
                 window_height=g_window_height,
+                vertices=cube_vertices,
+                centroids=cube_centroids,
+                normals=cube_normals,
+                triangle_indices=cube.triangle_indices,
+                colors=cube.colors,
                 # vis_check=visability_check,
             )
         if show_triangle_count:

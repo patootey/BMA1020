@@ -1,11 +1,11 @@
 """
-Code for handling vector functions and intersections, raytracing
+Code for handling vector functions, intersections, raytracing, translations and rotations.
 
-Author: Mathilde Borsodi Hegna
+@Author Mathilde Borsodi Hegna
 """
 
 import numpy as np
-
+from quaternions import Quaternion
 
 # Debug colors
 PINK = [255, 0, 128]
@@ -23,14 +23,42 @@ def vector_normalize(vector: np.ndarray):
     return vector / length
 
 
-# def array_vector_normalize(vectors: np.ndarray):
-#     """
-#     Normalizing vectors.
+def rotate(
+    quaternion: Quaternion,
+    vertices: np.ndarray,
+    normals: np.ndarray,
+    centroids: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Rotate all the vertices by a quaternion.
 
-#     :param vectors: The vectors to be normalized.
-#     """
-#     length = np.linalg.norm(vectors, axis=1)
-#     return vectors / length
+    :param quaternion: Quaternion object
+    """
+    # up to 25 points, including the quaternion code
+
+    return (
+        quaternion.rotate_vectors(vertices),
+        quaternion.rotate_vectors(normals),
+        quaternion.rotate_vectors(centroids),
+    )
+
+
+def translate(
+    vector: np.ndarray, vertices: np.ndarray, centroids: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:  # 10 points
+    """
+    Translating all vertices by the vector.
+
+    :param vector: Vector direction.
+    """
+    if vector.ndim != 1:
+        raise ValueError("Vector must be 1D")
+    if len(vector) != 3:
+        raise ValueError("Vector length must be 3")
+    vertices = vertices + vector
+    centroids = centroids + vector
+
+    return (vertices, centroids)
 
 
 def distance_point_to_plane(
@@ -266,9 +294,7 @@ def array_triangle_clip_against_plane(
     triangles: np.ndarray,
     colors: np.ndarray,
     clip_debug: bool,
-) -> tuple[
-    np.ndarray, np.ndarray, np.ndarray
-]:  # tuple[np.NDArray[Any], np.NDArray[Any], np.NDArray[Any]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Clipping all the triangle against the plane.
     Returns a tuple of all indices, verticies and colors that are clipped.
